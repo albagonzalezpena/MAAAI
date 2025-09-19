@@ -224,23 +224,130 @@ using Flux
 
 indexOutputLayer(ann::Chain) = length(ann) - (ann[end]==softmax);
 
+
 function newClassCascadeNetwork(numInputs::Int, numOutputs::Int)
-    #
-    # Codigo a desarrollar
-    #
+
+    if numOutputs ==1
+        ann = Chain(Dense(numInputs,numOutputs,σ))
+    
+    # - Si numOutputs > 2 → Dense(numInputs, numOutputs, identity) |> softmax
+    else
+        ann = Chain(Dense(numInputs, numOutputs, identity),softmax)
+    end
+
+    return ann
 end;
+
 
 function addClassCascadeNeuron(previousANN::Chain; transferFunction::Function=σ)
-    #
-    # Codigo a desarrollar
-    #
+    # Referenciar capa de salida y capas previas
+    outputLayer   = previousANN[indexOutputLayer(previousANN)]
+    previousLayers = previousANN[1:(indexOutputLayer(previousANN)-1)]
+
+    # Dimensiones de la capa de salida
+    numInputsOutputLayer  = size(outputLayer.weight, 2)
+    numOutputsOutputLayer = size(outputLayer.weight, 1)
+
+    # Nueva capa con una neurona oculta extra
+    nuevaCapa = SkipConnection(
+        Dense(numInputsOutputLayer, 1, transferFunction),
+        (mx, x) -> vcat(x, mx)   # concatena entradas originales + salida nueva
+    )
+
+    # Nueva capa de salida según el caso
+    nuevaSalida = if outputLayer isa Dense && outputLayer.σ === σ && numOutputsOutputLayer == 1
+        # Clasificación binaria (una salida con σ)
+        Dense(numInputsOutputLayer + 1, 1, σ)
+    else
+        # Clasificación multiclase (Dense + softmax)
+        Chain(
+            Dense(numInputsOutputLayer + 1, numOutputsOutputLayer, identity),
+            softmax
+        )
+    end
+
+    # Construir la nueva red
+    ann = Chain(previousLayers..., nuevaCapa, nuevaSalida)
+
+    # Copiar pesos de la capa de salida anterior
+    if nuevaSalida isa Dense
+        # Copiar a la nueva Dense (última col = 0)
+        ann[end].weight[:, 1:end-1] .= outputLayer.weight
+        ann[end].weight[:, end] .= 0.0f0
+        ann[end].bias .= outputLayer.bias
+    elseif nuevaSalida isa Chain
+        # Caso softmax: la Dense está en nuevaSalida[1]
+        denseLayer = ann[end][1]
+        denseLayer.weight[:, 1:end-1] .= outputLayer.weight
+        denseLayer.weight[:, end] .= 0.0f0
+        denseLayer.bias .= outputLayer.bias
+    end
+
+    return ann
 end;
 
-function trainClassANN!(ann::Chain, trainingDataset::Tuple{AbstractArray{<:Real,2}, AbstractArray{Bool,2}}, trainOnly2LastLayers::Bool;
-    maxEpochs::Int=1000, minLoss::Real=0.0, learningRate::Real=0.001, minLossChange::Real=1e-7, lossChangeWindowSize::Int=5)
-    #
-    # Codigo a desarrollar
-    #
+function trainClassANN!(
+    ann::Chain,
+    trainingDataset::Tuple{AbstractArray{<:Real,2}, AbstractArray{Bool,2}},
+    trainOnly2LastLayers::Bool;
+    maxEpochs::Int=1000,
+    minLoss::Real=0.0,
+    learningRate::Real=0.001,
+    minLossChange::Real=1e-7,
+    lossChangeWindowSize::Int=5
+)
+
+    # Datos de entrenamiento
+    X, Y = trainingDataset
+
+    # Definir función de loss (igual que en FAA → binary crossentropy / log loss)
+    loss_fn(ŷ, y) = Flux.Losses.logitcrossentropy(ŷ, y)
+
+    # Definir optimizador
+    opt_state = Flux.setup(Adam(learningRate), ann)
+
+    # Congelar capas si corresponde
+    if trainOnly2LastLayers
+        Flux.freeze!(opt_state.layers[1:(indexOutputLayer(ann)-2)])
+    end
+
+    # Vector de pérdidas
+    trainingLosses = Float32[]
+
+    # Calcular loss inicial (ciclo 0)
+    push!(trainingLosses, loss_fn(ann(X), Y) |> Float32)
+
+    # Entrenamiento
+    for epoch in 1:maxEpochs
+        # Paso de entrenamiento
+        grads = Flux.gradient(ann) do model
+            loss_fn(model(X), Y)
+        end
+        Flux.update!(opt_state, ann, grads)
+
+        # Calcular y guardar loss
+        current_loss = loss_fn(ann(X), Y) |> Float32
+        push!(trainingLosses, current_loss)
+
+        # ---- Criterios de parada ----
+        # 1) Si el loss ya es suficientemente bajo
+        if current_loss <= minLoss
+            println("Parada temprana: loss <= minLoss en epoch $epoch")
+            break
+        end
+
+        # 2) Si el cambio relativo en la ventana es demasiado pequeño
+        if length(trainingLosses) >= lossChangeWindowSize
+            lossWindow = trainingLosses[end-lossChangeWindowSize+1:end]
+            minLossValue, maxLossValue = extrema(lossWindow)
+            if (maxLossValue - minLossValue) / minLossValue <= minLossChange
+                println("Parada temprana: cambio en ventana <= minLossChange en epoch $epoch")
+                break
+            end
+        end
+    end
+
+    return trainingLosses
 end;
 
 

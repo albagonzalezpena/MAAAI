@@ -248,9 +248,40 @@ function trainClassCascadeANN(maxNumNeurons::Int,
     trainingDataset::Tuple{AbstractArray{<:Real,2}, AbstractArray{Bool,2}};
     transferFunction::Function=σ,
     maxEpochs::Int=1000, minLoss::Real=0.0, learningRate::Real=0.001, minLossChange::Real=1e-7, lossChangeWindowSize::Int=5)
-    #
-    # Codigo a desarrollar
-    #
+    
+    # Trasponer matrices de inputs y targets
+    inputs, targets = trainingDataset
+    tInputs = Float32.(inputs') # Trasponer y convertir a Float32
+    tTargets = targets'
+    
+    # Llamar a newClassCascadeNetwork -> devuelve red sin capas ocultas
+    ann = newClassCascadeNetwork(numInputs=size(tInputs, 1), numOutputs=size(tTargets, 1))
+    # Entrenar con !trainClassANN -> devuelve valores de loss del entrenamiento
+    loss = trainClassANN!(ann, (tInputs, tTargets), false; maxEpochs=maxEpochs, minLoss=minLoss, 
+        learningRate=learningRate, minLossChange=minLossChange, lossChangeWindowSize=lossChangeWindowSize)
+
+    for i in 1:maxNumNeurons
+
+        # Llamar a addClassCascadeNeuron para añadir neurona
+        if length(dense_layers) > 1 # Si hay capas ocultas
+
+            # Entrenar la red
+            newLosses = trainClassANN!(ann, (tInputs, tTargets), true; maxEpochs=maxEpochs, minLoss=minLoss,
+                learningRate=learningRate, minLossChange=minLossChange, lossChangeWindowSize=lossChangeWindowSize)
+
+            loss = vcat(loss, newLosses[2:end]) # Concatenar vectore de loss
+        
+        end
+
+        newLosses = trainClassANN!(ann, (tInputs, tTargets), false; maxEpochs=maxEpochs, minLoss=minLoss,
+            learningRate=learningRate, minLossChange=minLossChange, lossChangeWindowSize=lossChangeWindowSize)
+
+        loss = vcat(loss, newLosses[2:end]) # Concatenar vectore de loss
+        
+    end
+
+    return (ann, loss)
+
 end;
 
 function trainClassCascadeANN(maxNumNeurons::Int,

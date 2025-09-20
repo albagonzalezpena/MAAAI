@@ -221,6 +221,7 @@ end;
 # ----------------------------------------------------------------------------------------------
 
 using Flux
+using Flux.Losses
 
 indexOutputLayer(ann::Chain) = length(ann) - (ann[end]==softmax);
 
@@ -286,6 +287,7 @@ function addClassCascadeNeuron(previousANN::Chain; transferFunction::Function=σ
     return ann
 end;
 
+
 function trainClassANN!(
     ann::Chain,
     trainingDataset::Tuple{AbstractArray{<:Real,2}, AbstractArray{Bool,2}},
@@ -297,59 +299,52 @@ function trainClassANN!(
     lossChangeWindowSize::Int=5
 )
 
-    # Datos de entrenamiento
-    X, Y = trainingDataset
-
-    # Definir función de loss (igual que en FAA → binary crossentropy / log loss)
-    loss_fn(ŷ, y) = Flux.Losses.logitcrossentropy(ŷ, y)
-
-    # Definir optimizador
+    # Preparar datos de entrada
+    trainingInputs, trainingTargets = trainingDataset
+    
+    # Definir función de loss
+    loss(model, x, y) = (size(y,1) == 1) ? Losses.binarycrossentropy(model(x), y) : Losses.crossentropy(model(x), y)
+    
+    # Configurar optimizador
     opt_state = Flux.setup(Adam(learningRate), ann)
-
-    # Congelar capas si corresponde
+    
+    # Congelar capas si es necesario
     if trainOnly2LastLayers
         Flux.freeze!(opt_state.layers[1:(indexOutputLayer(ann)-2)])
     end
-
-    # Vector de pérdidas
+    
+    # Inicializar vector de losses
     trainingLosses = Float32[]
-
+    
     # Calcular loss inicial (ciclo 0)
-    push!(trainingLosses, loss_fn(ann(X), Y) |> Float32)
-
-    # Entrenamiento
+    push!(trainingLosses, loss(ann, trainingInputs, trainingTargets))
+    
+    # Bucle de entrenamiento
     for epoch in 1:maxEpochs
-        # Paso de entrenamiento
-        grads = Flux.gradient(ann) do model
-            loss_fn(model(X), Y)
-        end
-        Flux.update!(opt_state, ann, grads)
-
-        # Calcular y guardar loss
-        current_loss = loss_fn(ann(X), Y) |> Float32
-        push!(trainingLosses, current_loss)
-
-        # ---- Criterios de parada ----
-        # 1) Si el loss ya es suficientemente bajo
-        if current_loss <= minLoss
-            println("Parada temprana: loss <= minLoss en epoch $epoch")
+        # Entrenar una época
+        Flux.train!(loss, ann, [(trainingInputs, trainingTargets)], opt_state)
+        
+        # Calcular loss actual
+        currentTrainingLoss = loss(ann, trainingInputs, trainingTargets)
+        push!(trainingLosses, currentTrainingLoss)
+        
+        # Criterio de parada: loss mínimo alcanzado
+        if currentTrainingLoss <= minLoss
             break
         end
-
-        # 2) Si el cambio relativo en la ventana es demasiado pequeño
-        if length(trainingLosses) >= lossChangeWindowSize
+        
+        # Criterio de parada: cambio mínimo en loss
+        if length(trainingLosses) >= lossChangeWindowSize + 1 # +1 porque incluimos el ciclo 0
             lossWindow = trainingLosses[end-lossChangeWindowSize+1:end]
             minLossValue, maxLossValue = extrema(lossWindow)
             if (maxLossValue - minLossValue) / minLossValue <= minLossChange
-                println("Parada temprana: cambio en ventana <= minLossChange en epoch $epoch")
                 break
             end
         end
     end
-
+    
     return trainingLosses
 end;
-
 
 function trainClassCascadeANN(maxNumNeurons::Int,
     trainingDataset::Tuple{AbstractArray{<:Real,2}, AbstractArray{Bool,2}};
@@ -362,28 +357,33 @@ function trainClassCascadeANN(maxNumNeurons::Int,
     tTargets = targets'
     
     # Llamar a newClassCascadeNetwork -> devuelve red sin capas ocultas
-    ann = newClassCascadeNetwork(numInputs=size(tInputs, 1), numOutputs=size(tTargets, 1))
+    ann = newClassCascadeNetwork(size(tInputs, 1), size(tTargets, 1))
     # Entrenar con !trainClassANN -> devuelve valores de loss del entrenamiento
     loss = trainClassANN!(ann, (tInputs, tTargets), false; maxEpochs=maxEpochs, minLoss=minLoss, 
         learningRate=learningRate, minLossChange=minLossChange, lossChangeWindowSize=lossChangeWindowSize)
 
     for i in 1:maxNumNeurons
 
+        ann = addClassCascadeNeuron(ann; transferFunction) # Añadir capa oculta en cascada
+
         # Llamar a addClassCascadeNeuron para añadir neurona
-        if length(dense_layers) > 1 # Si hay capas ocultas
+        if length(ann) > 1 # Si hay capas ocultas
+
+            println("Longitud de ANN: ", length(ann))
+            println("Se ha entrenado la nueva capa oculta")
 
             # Entrenar la red
-            newLosses = trainClassANN!(ann, (tInputs, tTargets), true; maxEpochs=maxEpochs, minLoss=minLoss,
+            partLoss = trainClassANN!(ann, (tInputs, tTargets), true; maxEpochs=maxEpochs, minLoss=minLoss,
                 learningRate=learningRate, minLossChange=minLossChange, lossChangeWindowSize=lossChangeWindowSize)
 
-            loss = vcat(loss, newLosses[2:end]) # Concatenar vectore de loss
+            loss = vcat(loss, partLoss[2:end]) # Concatenar vectore de loss
         
         end
 
-        newLosses = trainClassANN!(ann, (tInputs, tTargets), false; maxEpochs=maxEpochs, minLoss=minLoss,
+        fullLoss = trainClassANN!(ann, (tInputs, tTargets), false; maxEpochs=maxEpochs, minLoss=minLoss,
             learningRate=learningRate, minLossChange=minLossChange, lossChangeWindowSize=lossChangeWindowSize)
 
-        loss = vcat(loss, newLosses[2:end]) # Concatenar vectore de loss
+        loss = vcat(loss, fullLoss[2:end]) # Concatenar vectores de loss
         
     end
 

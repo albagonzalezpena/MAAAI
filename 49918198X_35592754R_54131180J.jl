@@ -239,24 +239,24 @@ function newClassCascadeNetwork(numInputs::Int, numOutputs::Int)
     return ann
 end;
 
-
 function addClassCascadeNeuron(previousANN::Chain; transferFunction::Function=σ)
+
     # Referenciar capa de salida y capas previas
     outputLayer   = previousANN[indexOutputLayer(previousANN)]
     previousLayers = previousANN[1:(indexOutputLayer(previousANN)-1)]
 
     # Dimensiones de la capa de salida
-    numInputsOutputLayer  = size(outputLayer.weight, 2)
-    numOutputsOutputLayer = size(outputLayer.weight, 1)
+    numInputsOutputLayer  = size(outputLayer.weight, 2) # entradas
+    numOutputsOutputLayer = size(outputLayer.weight, 1) # salidas
 
     # Nueva capa con una neurona oculta extra
-    nuevaCapa = SkipConnection(
+    newLayer = SkipConnection(
         Dense(numInputsOutputLayer, 1, transferFunction),
         (mx, x) -> vcat(x, mx)   # concatena entradas originales + salida nueva
     )
 
     # Nueva capa de salida según el caso
-    nuevaSalida = if outputLayer isa Dense && outputLayer.σ === σ && numOutputsOutputLayer == 1
+    newOutputLayer = if numOutputsOutputLayer == 1
         # Clasificación binaria (una salida con σ)
         Dense(numInputsOutputLayer + 1, 1, σ)
     else
@@ -268,16 +268,16 @@ function addClassCascadeNeuron(previousANN::Chain; transferFunction::Function=σ
     end
 
     # Construir la nueva red
-    ann = Chain(previousLayers..., nuevaCapa, nuevaSalida)
+    ann = Chain(previousLayers..., newLayer, newOutputLayer)
 
     # Copiar pesos de la capa de salida anterior
-    if nuevaSalida isa Dense
+    if newOutputLayer isa Dense
         # Copiar a la nueva Dense (última col = 0)
         ann[end].weight[:, 1:end-1] .= outputLayer.weight
         ann[end].weight[:, end] .= 0.0f0
         ann[end].bias .= outputLayer.bias
-    elseif nuevaSalida isa Chain
-        # Caso softmax: la Dense está en nuevaSalida[1]
+    elseif newOutputLayer isa Chain
+        # Caso softmax: la Dense está en newOutputLayer[1]
         denseLayer = ann[end][1]
         denseLayer.weight[:, 1:end-1] .= outputLayer.weight
         denseLayer.weight[:, end] .= 0.0f0
@@ -362,21 +362,24 @@ function trainClassCascadeANN(maxNumNeurons::Int,
     loss = trainClassANN!(ann, (tInputs, tTargets), false; maxEpochs=maxEpochs, minLoss=minLoss, 
         learningRate=learningRate, minLossChange=minLossChange, lossChangeWindowSize=lossChangeWindowSize)
 
-    for i in 1:maxNumNeurons
+    println("Resultado de la funcion: ", indexOutputLayer(ann))
+
+    for _ in 1:maxNumNeurons
 
         ann = addClassCascadeNeuron(ann; transferFunction) # Añadir capa oculta en cascada
+        println("Resultado de la funcion: ", indexOutputLayer(ann))
+        println("Longitud: ", length(ann))
 
-        # Llamar a addClassCascadeNeuron para añadir neurona
-        if length(ann) > 1 # Si hay capas ocultas
+        if indexOutputLayer(ann) > 1 # Si hay capas ocultas
 
-            println("Longitud de ANN: ", length(ann))
+            println("Longitud de ANN: ", indexOutputLayer(ann))
             println("Se ha entrenado la nueva capa oculta")
 
             # Entrenar la red
             partLoss = trainClassANN!(ann, (tInputs, tTargets), true; maxEpochs=maxEpochs, minLoss=minLoss,
                 learningRate=learningRate, minLossChange=minLossChange, lossChangeWindowSize=lossChangeWindowSize)
 
-            loss = vcat(loss, partLoss[2:end]) # Concatenar vectore de loss
+            loss = vcat(loss, partLoss[2:end]) # Concatenar vectores de loss
         
         end
 

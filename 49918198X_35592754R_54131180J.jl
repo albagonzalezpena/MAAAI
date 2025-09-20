@@ -399,14 +399,11 @@ function trainClassCascadeANN(maxNumNeurons::Int,
     trainingDataset::  Tuple{AbstractArray{<:Real,2}, AbstractArray{Bool,1}};
     transferFunction::Function=σ,
     maxEpochs::Int=100, minLoss::Real=0.0, learningRate::Real=0.01, minLossChange::Real=1e-7, lossChangeWindowSize::Int=5)
-    
+
     # Extraer inputs y targets
     inputs, targets = trainingDataset
+    targets_matrix = reshape(targets, :, 1) # convert vector to matrix
     
-    # Convertir el vector de targets en matriz usando reshape
-    targets_matrix = reshape(targets, :, 1)  # Vector columna → matriz
-    
-    # Llamar a la función anterior con la matriz (que internamente traspondrá)
     return trainClassCascadeANN(maxNumNeurons, (inputs, targets_matrix);
         transferFunction=transferFunction, maxEpochs=maxEpochs, minLoss=minLoss,
         learningRate=learningRate, minLossChange=minLossChange, 

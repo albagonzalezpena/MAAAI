@@ -297,14 +297,19 @@ function trainClassANN!(
     minLoss::Real=0.0,
     learningRate::Real=0.001,
     minLossChange::Real=1e-7,
-    lossChangeWindowSize::Int=5
+    lossChangeWindowSize::Int=5,
+    seed::Int=1234   # NUEVO: semilla para reproducibilidad
 )
 
-    # Preparar datos de entrada
-    trainingInputs, trainingTargets = trainingDataset
+    # Fijar semilla para reproducibilidad
+    Random.seed!(seed)
+    
+    # Preparar datos de entrada y asegurarnos de que son Float32 / Bool
+    trainingInputs = Float32.(trainingDataset[1])
+    trainingTargets = Bool.(trainingDataset[2])
     
     # Definir función de loss
-    loss(model, x, y) = (size(y,1) == 1) ? Losses.binarycrossentropy(model(x), y) : Losses.crossentropy(model(x), y)
+    loss(model, x, y) = (size(y,1) == 1) ? Flux.binarycrossentropy(model(x), y) : Flux.crossentropy(model(x), y)
     
     # Configurar optimizador
     opt_state = Flux.setup(Adam(learningRate), ann)
@@ -318,7 +323,7 @@ function trainClassANN!(
     trainingLosses = Float32[]
     
     # Calcular loss inicial (ciclo 0)
-    push!(trainingLosses, loss(ann, trainingInputs, trainingTargets))
+    push!(trainingLosses, Float32(loss(ann, trainingInputs, trainingTargets)))
     
     # Bucle de entrenamiento
     for epoch in 1:maxEpochs
@@ -326,7 +331,7 @@ function trainClassANN!(
         Flux.train!(loss, ann, [(trainingInputs, trainingTargets)], opt_state)
         
         # Calcular loss actual
-        currentTrainingLoss = loss(ann, trainingInputs, trainingTargets)
+        currentTrainingLoss = Float32(loss(ann, trainingInputs, trainingTargets))
         push!(trainingLosses, currentTrainingLoss)
         
         # Criterio de parada: loss mínimo alcanzado
@@ -335,7 +340,7 @@ function trainClassANN!(
         end
         
         # Criterio de parada: cambio mínimo en loss
-        if length(trainingLosses) >= lossChangeWindowSize + 1 # +1 porque incluimos el ciclo 0
+        if length(trainingLosses) >= lossChangeWindowSize
             lossWindow = trainingLosses[end-lossChangeWindowSize+1:end]
             minLossValue, maxLossValue = extrema(lossWindow)
             if (maxLossValue - minLossValue) / minLossValue <= minLossChange
@@ -345,7 +350,10 @@ function trainClassANN!(
     end
     
     return trainingLosses
-end;
+end
+
+
+
 
 function trainClassCascadeANN(maxNumNeurons::Int,
     trainingDataset::Tuple{AbstractArray{<:Real,2}, AbstractArray{Bool,2}};
@@ -371,7 +379,7 @@ function trainClassCascadeANN(maxNumNeurons::Int,
         println("Resultado de la funcion: ", indexOutputLayer(ann))
         println("Longitud: ", length(ann))
 
-        if indexOutputLayer(ann) > 1 # Si hay capas ocultas
+        if indexOutputLayer(ann) > 2 # Si hay capas ocultas
 
             println("Longitud de ANN: ", indexOutputLayer(ann))
             println("Se ha entrenado la nueva capa oculta")
@@ -394,6 +402,7 @@ function trainClassCascadeANN(maxNumNeurons::Int,
     return (ann, loss)
 
 end;
+
 
 function trainClassCascadeANN(maxNumNeurons::Int,
     trainingDataset::  Tuple{AbstractArray{<:Real,2}, AbstractArray{Bool,1}};

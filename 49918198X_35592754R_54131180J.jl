@@ -429,30 +429,60 @@ using Random
 HopfieldNet = Array{Float32,2}
 
 function trainHopfield(trainingSet::AbstractArray{<:Real,2})
-    #
-    # Codigo a desarrollar
-    #
+     # Convertir a Float32
+    X = Float32.(trainingSet)
+    
+    # Número de instancias y características
+    N, D = size(X)
+    
+    # Calcular matriz de pesos: W = (X' * X) / N
+    W = X' * X ./ N   # Ajuste: dividir entre el número de columnas
+    
+    # Poner diagonal a 0
+    for i in 1:D
+        W[i,i] = 0.0f0
+    end
+    
+    return W
+
 end;
 function trainHopfield(trainingSet::AbstractArray{<:Bool,2})
-    #
-    # Codigo a desarrollar
-    #
-end;
+    # Convertir {0,1} a {-1,1} y llamar al método anterior
+    realSet = 2 .* Float32.(trainingSet) .- 1
+    return trainHopfield(realSet)
+end
+
 function trainHopfield(trainingSetNCHW::AbstractArray{<:Bool,4})
-    #
-    # Codigo a desarrollar
-    #
+    N, C, H, Wd = size(trainingSetNCHW)
+    # Aplanar a 2D: cada imagen como fila
+    reshapedSet = reshape(trainingSetNCHW, N, C*H*Wd)
+    # Llamar a la versión 2D
+    return trainHopfield(reshapedSet)
 end;
 
 function stepHopfield(ann::HopfieldNet, S::AbstractArray{<:Real,1})
-    #
-    # Codigo a desarrollar
-    #
+    # Convertir a Float32
+    x = Float32.(S)
+    
+    # Multiplicar por la matriz de pesos
+    y = ann * x
+    
+    # Aplicar signo para obtener -1 o 1
+    nextState = Float32.(sign.(y))
+    
+    return nextState
 end;
 function stepHopfield(ann::HopfieldNet, S::AbstractArray{<:Bool,1})
-    #
-    # Codigo a desarrollar
-    #
+    # Convertir de {0,1} a {-1,1}
+    realState = 2 .* S .- 1
+    
+    # Llamar al método anterior
+    nextStateReal = stepHopfield(ann, realState)
+    
+    # Convertir de {-1,1} a Bool: >= 0 → true, < 0 → false
+    nextStateBool = nextStateReal .>= 0
+    
+    return nextStateBool
 end;
 
 
@@ -483,41 +513,98 @@ end;
 
 
 function addNoise(datasetNCHW::AbstractArray{<:Bool,4}, ratioNoise::Real)
-    #
-    # Codigo a desarrollar
-    #
+    # Copia el array para no modificar el original
+    noisySet = copy(datasetNCHW)
+    
+    # Número total de elementos
+    totalElems = length(noisySet)
+    
+    # Número de píxeles a modificar
+    numNoise = Int(round(totalElems * ratioNoise))
+    
+    if numNoise > 0
+        # Elegir índices aleatorios
+        indices = randperm(totalElems)[1:numNoise]
+        # Invertir los valores en esos índices
+        noisySet[indices] .= .!noisySet[indices]
+    end
+    
+   
+    
+    return noisySet
 end;
 
 function cropImages(datasetNCHW::AbstractArray{<:Bool,4}, ratioCrop::Real)
-    #
-    # Codigo a desarrollar
-    #
+    croppedSet = copy(datasetNCHW)
+    # Obtener dimensiones
+    N, C, H, W = size(croppedSet)
+    
+    # Número de columnas a "borrar" por imagen
+    numCrop = Int(round(W * ratioCrop))
+    
+    if numCrop > 0
+        # Índices de columnas a poner a 0
+        colsToCrop = (W - numCrop + 1):W
+        # Poner a false (negro) esas columnas
+        croppedSet[:, :, :, colsToCrop] .= false
+    end
+    
+    @assert size(croppedSet) == size(datasetNCHW)  # Comprobación de tamaño
+    return croppedSet
+
 end;
 
 function randomImages(numImages::Int, resolution::Int)
-    #
-    # Codigo a desarrollar
-    #
+    
+    # Generar matriz aleatoria normal (numImages x 1 x resolution x resolution)
+    randomMat = randn(Float32, numImages, 1, resolution, resolution)
+    
+    # Convertir a boolean: valores >0 → true, <=0 → false
+    boolImages = randomMat .> 0
+    
+    return boolImages
+
 end;
 
 function averageMNISTImages(imageArray::AbstractArray{<:Real,4}, labelArray::AbstractArray{Int,1})
-    #
-    # Codigo a desarrollar
-    #
+    labels = unique(labelArray)
+    N = length(labels)
+    # Dimensiones de las imágenes
+    _, C, H, W = size(imageArray)
+
+     # Matriz de salida: N x C x H x W
+    avgImages = zeros(eltype(imageArray), N, C, H, W)
+    
+    # Un único bucle: promedio de cada dígito
+    for i in 1:N
+        digit = labels[i]
+        avgImages[i, :, :, :] .= dropdims(mean(imageArray[labelArray .== digit, :, :, :], dims=1), dims=1)
+    end
+    
+    return (avgImages, labels)
+
 end;
 
 function classifyMNISTImages(imageArray::AbstractArray{<:Bool,4}, templateInputs::AbstractArray{<:Bool,4}, templateLabels::AbstractArray{Int,1})
-    #
-    # Codigo a desarrollar
-    #
+    numImages = size(imageArray, 1)
+    outputs = fill(-1, numImages)  # Inicializar a -1
+    tl= length(templateLabels)
+    # Un bucle sobre plantillas
+    for idx in 1:tl
+        template = templateInputs[[idx], :, :, :]
+        # Comparación con todas las imágenes (broadcast)
+        indicesCoincidence = vec(all(imageArray .== template, dims=(2,3,4)))
+        outputs[indicesCoincidence] .= templateLabels[idx]
+    end
+    
+    return outputs
 end;
 
 function calculateMNISTAccuracies(datasetFolder::String, labels::AbstractArray{Int,1}, threshold::Real)
     #
-    # Codigo a desarrollar
+    #
     #
 end;
-
 
 
 # ----------------------------------------------------------------------------------------------

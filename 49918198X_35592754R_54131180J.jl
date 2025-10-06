@@ -613,70 +613,126 @@ end;
 
 # using ScikitLearn: @sk_import, fit!, predict
 # @sk_import svm: SVC
-
-using MLJ, LIBSVM, MLJLIBSVMInterface
+import MLJBase: fit!
+using MLJ, LIBSVM, MLJLIBSVMInterface, MLJBase
 SVMClassifier = MLJ.@load SVC pkg=LIBSVM verbosity=0
 import Main.predict
-predict(model, inputs::AbstractArray) = MLJ.predict(model, MLJ.table(inputs));
+predict(model, inputs::AbstractArray) = collect(MLJ.predict(model, MLJ.table(inputs))) .== true
 
 
 
-using Base.Iterators
+using Base.Iterators: partition
 using StatsBase
+using Random 
 
 Batch = Tuple{AbstractArray{<:Real,2}, AbstractArray{<:Any,1}}
 
 
 function batchInputs(batch::Batch)
-    #
-    # Codigo a desarrollar
-    #
+    return batch[1]
 end;
+
 
 function batchTargets(batch::Batch)
-    #
-    # Codigo a desarrollar
-    #
+    return batch[2]
 end;
 
+
 function batchLength(batch::Batch)
-    #
-    # Codigo a desarrollar
-    #
+    return size(batchInputs(batch), 1)
 end;
 
 function selectInstances(batch::Batch, indices::Any)
-    #
-    # Codigo a desarrollar
-    #
+    selected_inputs = batchInputs(batch)[indices, :]
+    selected_targets = batchTargets(batch)[indices]
+    return (selected_inputs, selected_targets)
 end;
 
 function joinBatches(batch1::Batch, batch2::Batch)
-    #
-    # Codigo a desarrollar
-    #
+    new_inputs = vcat(batchInputs(batch1), batchInputs(batch2))
+    new_targets = vcat(batchTargets(batch1), batchTargets(batch2))
+    return (new_inputs, new_targets)
 end;
 
 
 function divideBatches(dataset::Batch, batchSize::Int; shuffleRows::Bool=false)
-    #
-    # Codigo a desarrollar
-    #
+    n = batchLength(dataset)                      
+    indices = collect(1:n)                        
+    
+    if shuffleRows
+        Random.shuffle!(indices)                  
+    end
+
+    partitions = partition(indices, batchSize)    
+
+    return [selectInstances(dataset, p) for p in partitions] 
 end;
 
 function trainSVM(dataset::Batch, kernel::String, C::Real;
     degree::Real=1, gamma::Real=2, coef0::Real=0.,
     supportVectors::Batch=( Array{eltype(dataset[1]),2}(undef,0,size(dataset[1],2)) , Array{eltype(dataset[2]),1}(undef,0) ) )
-    #
-    # Codigo a desarrollar
-    #
+    # 1️ Unir los batches (vectores de soporte + dataset)
+    trainingBatch = joinBatches(supportVectors, dataset)
+
+    # 2️ Crear el modelo SVM
+    model = SVMClassifier(
+        kernel =
+            kernel=="linear"  ? LIBSVM.Kernel.Linear :
+            kernel=="rbf"     ? LIBSVM.Kernel.RadialBasis :
+            kernel=="poly"    ? LIBSVM.Kernel.Polynomial :
+            kernel=="sigmoid" ? LIBSVM.Kernel.Sigmoid : nothing,
+        cost   = Float64(C),
+        gamma  = Float64(gamma),
+        degree = Int32(degree),
+        coef0  = Float64(coef0)
+    )
+
+    # 3️ Entrenar el modelo
+    mach = machine(model, MLJ.table(batchInputs(trainingBatch)), categorical(batchTargets(trainingBatch)))
+    fit!(mach)
+
+    # 4️ Obtener índices de vectores de soporte
+    indicesNewSupportVectors = sort(mach.fitresult[1].SVs.indices)
+
+    # 5️ Separar índices
+    N = batchLength(supportVectors)
+
+    indices_from_supportVectors = filter(i -> i <= N, indicesNewSupportVectors)
+    indices_from_dataset = filter(i -> i > N, indicesNewSupportVectors) .- N
+
+    # 6️ Crear batches de vectores de soporte
+    sv_from_supportVectors = batchLength(supportVectors) > 0 ? selectInstances(supportVectors, indices_from_supportVectors) :
+                              (zeros(0,size(dataset[1],2)), Array{eltype(dataset[2]),1}(undef,0))
+
+    sv_from_dataset = batchLength(dataset) > 0 ? selectInstances(dataset, indices_from_dataset) :
+                       (zeros(0,size(dataset[1],2)), Array{eltype(dataset[2]),1}(undef,0))
+
+    supportVectorsBatch = joinBatches(sv_from_supportVectors, sv_from_dataset)
+
+    # 7️ Devolver modelo, batch de vectores de soporte e índices
+    return (mach, supportVectorsBatch, (indices_from_supportVectors, indices_from_dataset))
 end;
 
 function trainSVM(batches::AbstractArray{<:Batch,1}, kernel::String, C::Real;
     degree::Real=1, gamma::Real=2, coef0::Real=0.)
-    #
-    # Codigo a desarrollar
-    #
+    # Batch inicial vacío de vectores de soporte
+    supportVectors = (
+        Array{Float64,2}(undef, 0, size(batchInputs(batches[1]), 2)),
+        Array{eltype(batchTargets(batches[1])),1}(undef, 0)
+    )
+
+    mach = nothing  # variable para almacenar el modelo entrenado
+
+    # Entrenamiento incremental: recorrer todos los batches
+    for batch in batches
+        mach, supportVectors, supportVectorIndices = trainSVM(batch, kernel, C;
+                                                               degree=degree,
+                                                               gamma=gamma,
+                                                               coef0=coef0,
+                                                               supportVectors=supportVectors)
+    end
+
+    return mach
 end;
 
 

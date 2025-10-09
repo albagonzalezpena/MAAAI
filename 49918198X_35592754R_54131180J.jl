@@ -601,9 +601,41 @@ function classifyMNISTImages(imageArray::AbstractArray{<:Bool,4}, templateInputs
 end;
 
 function calculateMNISTAccuracies(datasetFolder::String, labels::AbstractArray{Int,1}, threshold::Real)
-    #
-    #
-    #
+    # Verificar que no hay etiquetas repetidas
+    @assert length(labels) == length(unique(labels)) "El vector de etiquetas no debe contener valores repetidos"
+    
+    # 1. Cargar el dataset MNIST (usando labels como argumento keyword)
+    (trainImages, trainLabels, testImages, testLabels) = loadMNISTDataset(datasetFolder; labels=labels, datasetType=Float32)
+    
+    # 2. Obtener las imágenes plantilla promediando las de entrenamiento
+    (templateImages, templateLabels) = averageMNISTImages(trainImages, trainLabels)
+    
+    # 3. Umbralizar las tres matrices de imágenes
+    trainImagesBinary = trainImages .>= threshold
+    testImagesBinary = testImages .>= threshold
+    templateImagesBinary = templateImages .>= threshold
+    
+    # 4. Entrenar la red de Hopfield con las plantillas umbralizadas
+    hopfieldNet = trainHopfield(templateImagesBinary)
+    
+    # 5. Calcular precisión en el conjunto de entrenamiento
+    # Ejecutar la red con las imágenes de entrenamiento
+    trainReconstructions = runHopfield(hopfieldNet, trainImagesBinary)
+    # Clasificar las reconstrucciones
+    trainPredictions = classifyMNISTImages(trainReconstructions, templateImagesBinary, templateLabels)
+    # Calcular precisión
+    trainAccuracy = mean(trainPredictions .== trainLabels)
+    
+    # 6. Calcular precisión en el conjunto de test
+    # Ejecutar la red con las imágenes de test
+    testReconstructions = runHopfield(hopfieldNet, testImagesBinary)
+    # Clasificar las reconstrucciones
+    testPredictions = classifyMNISTImages(testReconstructions, templateImagesBinary, templateLabels)
+    # Calcular precisión
+    testAccuracy = mean(testPredictions .== testLabels)
+    
+    # 7. Devolver tupla con precisiones
+    return (trainAccuracy, testAccuracy)
 end;
 
 
@@ -618,7 +650,6 @@ using MLJ, LIBSVM, MLJLIBSVMInterface, MLJBase
 SVMClassifier = MLJ.@load SVC pkg=LIBSVM verbosity=0
 import Main.predict
 predict(model, inputs::AbstractArray) = collect(MLJ.predict(model, MLJ.table(inputs))) .== true
-
 
 
 using Base.Iterators: partition
@@ -671,6 +702,7 @@ end;
 function trainSVM(dataset::Batch, kernel::String, C::Real;
     degree::Real=1, gamma::Real=2, coef0::Real=0.,
     supportVectors::Batch=( Array{eltype(dataset[1]),2}(undef,0,size(dataset[1],2)) , Array{eltype(dataset[2]),1}(undef,0) ) )
+    
     # 1️ Unir los batches (vectores de soporte + dataset)
     trainingBatch = joinBatches(supportVectors, dataset)
 
@@ -697,16 +729,12 @@ function trainSVM(dataset::Batch, kernel::String, C::Real;
     # 5️ Separar índices
     N = batchLength(supportVectors)
 
-    indices_from_supportVectors = filter(i -> i <= N, indicesNewSupportVectors)
-    indices_from_dataset = filter(i -> i > N, indicesNewSupportVectors) .- N
+    indices_from_supportVectors = [i for i in indicesNewSupportVectors if i <= N]
+    indices_from_dataset = [i - N for i in indicesNewSupportVectors if i > N]
 
-    # 6️ Crear batches de vectores de soporte
-    sv_from_supportVectors = batchLength(supportVectors) > 0 ? selectInstances(supportVectors, indices_from_supportVectors) :
-                              (zeros(0,size(dataset[1],2)), Array{eltype(dataset[2]),1}(undef,0))
-
-    sv_from_dataset = batchLength(dataset) > 0 ? selectInstances(dataset, indices_from_dataset) :
-                       (zeros(0,size(dataset[1],2)), Array{eltype(dataset[2]),1}(undef,0))
-
+    # 6️ Crear batches de vectores de soporte 
+    sv_from_supportVectors = selectInstances(supportVectors, indices_from_supportVectors)
+    sv_from_dataset = selectInstances(dataset, indices_from_dataset)
     supportVectorsBatch = joinBatches(sv_from_supportVectors, sv_from_dataset)
 
     # 7️ Devolver modelo, batch de vectores de soporte e índices
@@ -715,21 +743,24 @@ end;
 
 function trainSVM(batches::AbstractArray{<:Batch,1}, kernel::String, C::Real;
     degree::Real=1, gamma::Real=2, coef0::Real=0.)
+
+    inputs, labels = (batchInputs(batches[1]), batchTargets(batches[1]))
+
     # Batch inicial vacío de vectores de soporte
     supportVectors = (
-        Array{Float64,2}(undef, 0, size(batchInputs(batches[1]), 2)),
-        Array{eltype(batchTargets(batches[1])),1}(undef, 0)
+        Array{eltype(inputs),2}(undef, 0, size(inputs, 2)),
+        Array{eltype(labels),1}(undef, 0)
     )
 
     mach = nothing  # variable para almacenar el modelo entrenado
 
     # Entrenamiento incremental: recorrer todos los batches
     for batch in batches
-        mach, supportVectors, supportVectorIndices = trainSVM(batch, kernel, C;
-                                                               degree=degree,
-                                                               gamma=gamma,
-                                                               coef0=coef0,
-                                                               supportVectors=supportVectors)
+        mach, supportVectors, _ = trainSVM(batch, kernel, C;
+                                            degree=degree,
+                                            gamma=gamma,
+                                            coef0=coef0,
+                                            supportVectors=supportVectors)
     end
 
     return mach
@@ -745,59 +776,140 @@ end;
 
 
 function initializeStreamLearningData(datasetFolder::String, windowSize::Int, batchSize::Int)
-    #
-    # Codigo a desarrollar
-    #
+    
+    dataset = loadStreamLearningDataset(datasetFolder) # Load dataset
+    memory = selectInstances(dataset, 1:windowSize) # Take first windowSize instances
+    # Separate the rest of the data
+    _, labels = dataset
+    n = size(labels, 1)
+    rest = selectInstances(dataset, windowSize+1:n)
+    batches = divideBatches(rest, batchSize) # Divide the rest of the instances
+    return (memory, batches)
 end;
 
 function addBatch!(memory::Batch, newBatch::Batch)
-    #
-    # Codigo a desarrollar
-    #
+    
+    inputsBatch, labelsBatch = newBatch
+    inputsMemory, labelsMemory = memory
+
+    n = size(labelsBatch, 1) # calculate the offset
+
+    # Replace old memory
+    inputsMemory[1:n,:] = inputsMemory[end-n+1:end,:] 
+    labelsMemory[1:n] = labelsMemory[end-n+1:end] 
+
+    # Write new batch into memory
+    inputsMemory[end-n+1:end,:] = inputsBatch
+    labelsMemory[end-n+1:end] = labelsBatch
+
 end;
 
 function streamLearning_SVM(datasetFolder::String, windowSize::Int, batchSize::Int, kernel::String, C::Real;
     degree::Real=1, gamma::Real=2, coef0::Real=0.)
-    #
-    # Codigo a desarrollar
-    #
+    
+    memory, batches = initializeStreamLearningData(datasetFolder, windowSize, batchSize) # initialize memory and data
+    model, _, _ = trainSVM(memory, kernel, C; degree=degree, gamma=gamma, coef0=coef0)
+    accHistory = Float64[]
+
+    for batch in batches
+        y_pred = predict(model, batch[1])
+        accuracy = mean(y_pred .== batch[2])
+        push!(accHistory, accuracy)        
+        addBatch!(memory, batch)
+        model, _, _ = trainSVM(memory, kernel, C; degree=degree, gamma=gamma, coef0=coef0)
+    end
+
+    return accHistory
+
 end;
 
 function streamLearning_ISVM(datasetFolder::String, windowSize::Int, batchSize::Int, kernel::String, C::Real;
     degree::Real=1, gamma::Real=2, coef0::Real=0.)
-    #
-    # Codigo a desarrollar
-    #
+    
+    firstBatch, batches = initializeStreamLearningData(datasetFolder, batchSize, batchSize) # initialize memory and data
+    model, SVBatch, indices = trainSVM(firstBatch, kernel, C; degree=degree, gamma=gamma, coef0=coef0) # Train first batch
+    instanceTimestamp = collect(batchSize:-1:1) # Create timestamp for all instances
+    SVAges = instanceTimestamp[indices[2]]
+    accHistory = Float64[]
+
+    for batch in batches
+
+        # Test model and calculate and register accuracy
+        y_pred = predict(model, batch[1])
+        accuracy = mean(y_pred .== batch[2])
+        push!(accHistory, accuracy)  
+
+        # Update support vectors timestamp
+        SVAges .+= size(batch[1], 1) 
+
+        # Select only newer support vectors
+        svInputs, svLabels = selectInstances(SVBatch, SVAges.<=windowSize)
+        SVAges = SVAges[SVAges .<= windowSize]
+        SVBatch = (svInputs, svLabels)
+
+        # Train new incremental SVM
+        model, _, indices = trainSVM(batch, kernel, C; 
+                                                    degree=degree, 
+                                                    gamma=gamma, 
+                                                    coef0=coef0, 
+                                                    supportVectors = SVBatch) 
+        # Create new batch
+        oldSV = selectInstances(SVBatch, indices[1])
+        newSV = selectInstances(batch, indices[2])
+        SVBatch = joinBatches(oldSV, newSV)
+        # Create new timestamp vector
+        oldSVAges = SVAges[indices[1]]
+        newSVAges = collect(size(batch[1], 1):-1:1)
+        newSVAges = newSVAges[indices[2]]
+        SVAges = vcat(oldSVAges, newSVAges)
+    end
+
+    return accHistory
 end;
 
 function euclideanDistances(dataset::Batch, instance::AbstractArray{<:Real,1})
-    #
-    # Codigo a desarrollar
-    #
+
+    diff = instance' .- dataset[1] # Transpose vector and calculate differences
+    sums = sum(diff.^2, dims=2) # Sum of squares
+    euclidian_distances = sqrt.(sums) # Square root of sum of squares
+    return vec(euclidian_distances)
 end;
 
 function nearestElements(dataset::Batch, instance::AbstractArray{<:Real,1}, k::Int)
-    #
-    # Codigo a desarrollar
-    #
+    
+    distances = euclideanDistances(dataset, instance)
+    indices = partialsortperm(distances, 1:k)
+    return selectInstances(dataset, indices)
+
 end;
 
 function predictKNN(dataset::Batch, instance::AbstractArray{<:Real,1}, k::Int)
-    #
-    # Codigo a desarrollar
-    #
+    
+    neighbours = nearestElements(dataset, instance, k)
+    nLabels = batchTargets(neighbours)
+    return StatsBase.mode(nLabels)
+
 end;
 
 function predictKNN(dataset::Batch, instances::AbstractArray{<:Real,2}, k::Int)
-    #
-    # Codigo a desarrollar
-    #
+    
+    return [predictKNN(dataset, instance, k) for instance in eachrow(instances)]
+
 end;
 
 function streamLearning_KNN(datasetFolder::String, windowSize::Int, batchSize::Int, k::Int)
-    #
-    # Codigo a desarrollar
-    #
+
+    memory, batches = initializeStreamLearningData(datasetFolder, windowSize, batchSize) # initialize memory and data
+    accHistory = Float64[]
+
+    for batch in batches
+        y_pred = predictKNN(memory, batchInputs(batch), k)
+        accuracy = mean(y_pred .== batchTargets(batch))
+        push!(accHistory, accuracy)        
+        addBatch!(memory, batch)
+    end
+
+    return accHistory
 end;
 
 

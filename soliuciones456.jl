@@ -53,7 +53,6 @@ seed!(1); @assert(all(isapprox.(mean.(batchInputs.(divideBatches(dataset, 100; s
 seed!(1); @assert(all(isapprox.(mean.(batchTargets.(divideBatches(dataset, 100; shuffleRows=true))), [0.43, 0.5, 0.5])))
 
 
-
 model, supportVectors, supportVectorIndices = trainSVM(dataset, "rbf", 1; gamma=3)
 @assert(batchLength(supportVectors) == 197)
 @assert(isempty(supportVectorIndices[1]))
@@ -115,9 +114,9 @@ accuracies = streamLearning_ISVM(datasetFolder, 1000, 500, "rbf", 1.; gamma=2);
 @assert(all(isapprox.(accuracies, [0.632, 0.446, 0.64, 0.608, 0.566, 0.63, 0.604, 0.62, 0.662, 0.494, 0.662, 0.662, 0.63, 0.55, 0.556, 0.684, 0.604, 0.628, 0.646, 0.722, 0.572, 0.546, 0.69, 0.612, 0.558, 0.66, 0.782, 0.704, 0.748, 0.572, 0.622, 0.602, 0.732, 0.75, 0.612, 0.714, 0.79, 0.646, 0.814, 0.688, 0.674, 0.644, 0.708, 0.716, 0.69, 0.758, 0.66, 0.728, 0.66, 0.604, 0.748, 0.832, 0.812, 0.694, 0.682, 0.652, 0.58, 0.682, 0.578, 0.636, 0.63, 0.636, 0.582, 0.61, 0.752, 0.636, 0.7, 0.578, 0.588, 0.706, 0.752, 0.662, 0.666, 0.644, 0.71, 0.626, 0.722, 0.712, 0.684, 0.622, 0.678, 0.726, 0.696, 0.744, 0.648, 0.642, 0.59, 0.636, 0.796, 0.7884615384615384])))
 
 
-"""distances = euclideanDistances(memory, batchList[1][1][1,:]);
+distances = euclideanDistances(memory, batchList[1][1][1,:]);
 @assert(isa(distances, Vector{<:Real}))
-@assert(all(isapprox.(distances[1:3], [2.1177654, 2.1170123, 2.117566])))"""
+@assert(all(isapprox.(distances[1:3], [2.1177654, 2.1170123, 2.117566])))
 
 nearestInstances =  nearestElements(memory, batchList[1][1][1,:], 3);
 @assert(all(isapprox(batchInputs(nearestInstances), 
@@ -140,12 +139,9 @@ accuracies = streamLearning_KNN(datasetFolder, 1000, 500, 9);
 
 
 
-
 # ----------------------------------------------------------------------------------------------
 # ------------------------------------- Ejercicio 6 --------------------------------------------
 # ----------------------------------------------------------------------------------------------
-
-
 
 output = predictKNN_SVM(dataset, inputs[1,:], 7, 1.);
 @assert(!output);

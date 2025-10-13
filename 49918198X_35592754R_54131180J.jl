@@ -721,7 +721,7 @@ function trainSVM(dataset::Batch, kernel::String, C::Real;
 
     # 3️ Entrenar el modelo
     mach = machine(model, MLJ.table(batchInputs(trainingBatch)), categorical(batchTargets(trainingBatch)))
-    fit!(mach)
+    fit!(mach, verbosity=0)
 
     # 4️ Obtener índices de vectores de soporte
     indicesNewSupportVectors = sort(mach.fitresult[1].SVs.indices)
@@ -921,13 +921,33 @@ end;
 
 
 function predictKNN_SVM(dataset::Batch, instance::AbstractArray{<:Real,1}, k::Int, C::Real)
-    #
-    # Codigo a desarrollar
-    #
+
+
+    # Get k nearest neighbors
+    neighbors = nearestElements(dataset, instance, k)
+
+    # Case: there is only one class
+    if length(unique(batchTargets(neighbors))) == 1
+        return unique(batchTargets(neighbors))[1]
+    end
+
+    # Build and train local SVM
+    localSvm = SVMClassifier(
+        kernel = LIBSVM.Kernel.Linear,
+        cost   = Float64(C)
+    )
+    mach = machine(localSvm, MLJ.table(batchInputs(neighbors)), categorical(batchTargets(neighbors)))
+    fit!(mach, verbosity=0)
+
+    # Predict for given instance
+    pred = predict(mach, reshape(instance, 1, :))
+    predValue = pred[1]
+    return predValue
+
 end;
 
 function predictKNN_SVM(dataset::Batch, instances::AbstractArray{<:Real,2}, k::Int, C::Real)
-    #
-    # Codigo a desarrollar
-    #
+
+    predictions = [predictKNN_SVM(dataset, instance, k, C) for instance in eachrow(instances)]
+    return predictions
 end;

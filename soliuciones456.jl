@@ -91,11 +91,9 @@ model = trainSVM(divideBatches(dataset, 100; shuffleRows=false), "rbf", 10; gamm
 # ----------------------------------------------------------------------------------------------
 
 
-
-
 memory, batchList = initializeStreamLearningData(datasetFolder, 1000, 100);
 @assert(isa(memory, Batch))
-@assert(mean.(memory) == (0.2477397471666336, 0.506))
+@assert(mean.(memory) == (0.24773966f0, 0.506))
 @assert(isa(batchList, Vector{<:Batch}))
 @assert(length(batchList) == 444)
 @assert(isapprox(mean(mean.(batchInputs.(batchList))), 0.26480379700660706))
@@ -103,7 +101,6 @@ memory, batchList = initializeStreamLearningData(datasetFolder, 1000, 100);
 
 addBatch!(memory, batchList[1])
 @assert(all(isapprox.(mean.(memory), (0.25013414f0, 0.531))))
-
 
 
 accuracies  = streamLearning_SVM(datasetFolder, 1000, 500, "rbf", 1.; gamma=2);

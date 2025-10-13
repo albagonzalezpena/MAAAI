@@ -783,7 +783,7 @@ function initializeStreamLearningData(datasetFolder::String, windowSize::Int, ba
     _, labels = dataset
     n = size(labels, 1)
     rest = selectInstances(dataset, windowSize+1:n)
-    batches = divideBatches(rest, batchSize) # Divide the rest of the instances
+    batches = divideBatches(rest, batchSize; shuffleRows=false) # Divide the rest of the instances
     return (memory, batches)
 end;
 
@@ -795,8 +795,8 @@ function addBatch!(memory::Batch, newBatch::Batch)
     n = size(labelsBatch, 1) # calculate the offset
 
     # Replace old memory
-    inputsMemory[1:n,:] = inputsMemory[end-n+1:end,:] 
-    labelsMemory[1:n] = labelsMemory[end-n+1:end] 
+    inputsMemory[1:end-n,:] = inputsMemory[n+1:end,:] 
+    labelsMemory[1:end-n] = labelsMemory[n+1:end] 
 
     # Write new batch into memory
     inputsMemory[end-n+1:end,:] = inputsBatch

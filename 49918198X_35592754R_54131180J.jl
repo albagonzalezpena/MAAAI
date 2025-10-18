@@ -941,7 +941,8 @@ function predictKNN_SVM(dataset::Batch, instance::AbstractArray{<:Real,1}, k::In
 
     # Predict for given instance
     pred = predict(mach, reshape(instance, 1, :))
-    predValue = pred[1]
+    TargetType = eltype(batchTargets(dataset))
+    predValue = TargetType(pred[1])
     return predValue
 
 end;

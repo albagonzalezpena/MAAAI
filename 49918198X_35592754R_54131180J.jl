@@ -928,7 +928,7 @@ function predictKNN_SVM(dataset::Batch, instance::AbstractArray{<:Real,1}, k::In
 
     # Case: there is only one class
     if length(unique(batchTargets(neighbors))) == 1
-        return unique(batchTargets(neighbors))[1]
+        return batchTargets(neighbors)[1]
     end
 
     # Build and train local SVM

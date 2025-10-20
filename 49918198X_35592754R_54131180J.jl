@@ -649,7 +649,7 @@ import MLJBase: fit!
 using MLJ, LIBSVM, MLJLIBSVMInterface, MLJBase
 SVMClassifier = MLJ.@load SVC pkg=LIBSVM verbosity=0
 import Main.predict
-predict(model, inputs::AbstractArray) = collect(MLJ.predict(model, MLJ.table(inputs))) .== true
+predict(model, inputs::AbstractArray) = (outputs = MLJ.predict(model, MLJ.table(inputs)); return levels(outputs)[int(outputs)]; )
 
 
 using Base.Iterators: partition

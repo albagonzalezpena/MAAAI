@@ -1,0 +1,21 @@
+# --- Sistema Operativo e IDEs ---
+.DS_Store
+.vscode/
+**/.vscode/
+.idea/
+
+# --- Julia (Lo importante) ---
+# Ignorar archivos de precompilación y binarios
+*.ji
+*.cov
+*.mem
+*.tmp
+
+# --- Datos y Resultados ---
+datasets/
+data/
+results/
+*.csv
+
+# --- Jupyter ---
+.ipynb_checkpoints/

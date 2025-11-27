@@ -398,67 +398,46 @@ mutable struct LogisticRFE <: MLJModelInterface.Probabilistic
     fit_intercept::Bool
 end
 
-# Constructor con defaults
 LogisticRFE(; lambda::Float64=1.0, penalty::Symbol=:l2, fit_intercept::Bool=true) =
     LogisticRFE(lambda, penalty, fit_intercept)
 
-# Interfaz MLJ
 MLJModelInterface.input_scitype(::Type{<:LogisticRFE}) = Table(Continuous)
 MLJModelInterface.target_scitype(::Type{<:LogisticRFE}) = AbstractVector{<:Finite}
 MLJModelInterface.reports_feature_importances(::Type{<:LogisticRFE}) = true
 MLJModelInterface.prediction_type(::Type{<:LogisticRFE}) = :probabilistic
 
-# =========================================================
-# Fit
-# =========================================================
-
 function MLJModelInterface.fit(model::LogisticRFE, verbosity::Int, X, y)
-    # Convertir y a CategoricalVector
     y = categorical(y)
-
-    # Modelo multinomial
     real_model = MLJLinearModels.MultinomialClassifier(
         lambda = model.lambda,
         penalty = model.penalty,
         fit_intercept = model.fit_intercept
     )
-
     mach = machine(real_model, X, y)
     fit!(mach, verbosity=verbosity)
-
     features = Tables.columnnames(X)
     fitresult = (mach, features)
-
     return fitresult, nothing, report(mach)
 end
-
-# =========================================================
-# Predict
-# =========================================================
 
 function MLJModelInterface.predict(model::LogisticRFE, fitresult, Xnew)
     mach, _ = fitresult
     return predict(mach, Xnew)
 end
 
-# =========================================================
-# Feature Importances
-# =========================================================
+# ¡AÑADIR ESTA FUNCIÓN!
+function MLJModelInterface.predict_mode(model::LogisticRFE, fitresult, Xnew)
+    mach, _ = fitresult
+    return predict_mode(mach, Xnew)
+end
 
 function MLJModelInterface.feature_importances(model::LogisticRFE, fitresult, report)
     mach, features = fitresult
-    coefs = fitted_params(mach).coefs  # Puede ser vector o matriz
+    coefs = fitted_params(mach).coefs
     n_features = length(features)
-
-    # Binario: vector, Multiclase: matriz n_classes x n_features
     importances = coefs isa AbstractMatrix ? vec(mean(abs.(coefs), dims=1)) : abs.(coefs)
-
     return [features[i] => importances[i] for i in 1:n_features]
 end
-
-# =========================================================
-# Factory RFE
-# =========================================================
 
 function RFELogistic(; k::Int=5, step::Float64=0.5, lambda::Float64=1.0)
     base_model = LogisticRFE(lambda=lambda, penalty=:l2)

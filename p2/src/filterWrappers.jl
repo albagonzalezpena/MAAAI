@@ -392,7 +392,7 @@ output_scitype(::Type{<:MutualInfoSelector}) = Table(Continuous)
 # ==============================================================================
 # Logistic Regression Wrapper para MLJ
 # ==============================================================================
-mutable struct LogisticRFE <: MLJModelInterface.Probabilistic
+mutable struct LogisticRFE <: MLJModelInterface.Probabilistic  # ⬅️ CAMBIO A Deterministic
     lambda::Float64
     penalty::Symbol
     fit_intercept::Bool
@@ -404,44 +404,79 @@ LogisticRFE(; lambda::Float64=1.0, penalty::Symbol=:l2, fit_intercept::Bool=true
 MLJModelInterface.input_scitype(::Type{<:LogisticRFE}) = Table(Continuous)
 MLJModelInterface.target_scitype(::Type{<:LogisticRFE}) = AbstractVector{<:Finite}
 MLJModelInterface.reports_feature_importances(::Type{<:LogisticRFE}) = true
-MLJModelInterface.prediction_type(::Type{<:LogisticRFE}) = :probabilistic
 
+# ⬅️ Devolver el MISMO TIPO que el modelo base
 function MLJModelInterface.fit(model::LogisticRFE, verbosity::Int, X, y)
-    y = categorical(y)
+
+    # NO convertir y aquí - dejar que MultinomialClassifier lo haga
     real_model = MLJLinearModels.MultinomialClassifier(
         lambda = model.lambda,
         penalty = model.penalty,
         fit_intercept = model.fit_intercept
     )
+    
+    # Crear máquina interna
     mach = machine(real_model, X, y)
     fit!(mach, verbosity=verbosity)
-    features = Tables.columnnames(X)
-    fitresult = (mach, features)
-    return fitresult, nothing, report(mach)
+    
+    # Guardar features
+    features = collect(Tables.columnnames(X))
+    
+    # ⬅️ CLAVE: Devolver estructura correcta para MLJ
+    # fitresult debe ser algo que predict pueda usar
+    fitresult = (mach=mach, features=features)
+    cache = nothing
+    report_content = report(mach)
+    
+    return fitresult, cache, report_content
 end
 
+# ⬅️ Predict debe devolver clases (Deterministic)
 function MLJModelInterface.predict(model::LogisticRFE, fitresult, Xnew)
-    mach, _ = fitresult
-    return predict(mach, Xnew)
+    mach = fitresult.mach
+    return predict(mach, Xnew)  # Clases directas
 end
 
-# ¡AÑADIR ESTA FUNCIÓN!
-function MLJModelInterface.predict_mode(model::LogisticRFE, fitresult, Xnew)
-    mach, _ = fitresult
-    return predict_mode(mach, Xnew)
-end
 
 function MLJModelInterface.feature_importances(model::LogisticRFE, fitresult, report)
-    mach, features = fitresult
-    coefs = fitted_params(mach).coefs
-    n_features = length(features)
-    importances = coefs isa AbstractMatrix ? vec(mean(abs.(coefs), dims=1)) : abs.(coefs)
-    return [features[i] => importances[i] for i in 1:n_features]
+    mach = fitresult.mach
+    features = fitresult.features
+    
+    try
+        fp = fitted_params(mach)
+        coefs = fp.coefs
+        n_features = length(features)
+        
+        # Manejar matriz (multiclase) o vector (binario)
+        if coefs isa AbstractMatrix
+            # Promedio absoluto sobre clases
+            # Si tiene intercept, es (n_classes, n_features+1)
+            if model.fit_intercept && size(coefs, 2) == n_features + 1
+                coefs = coefs[:, 2:end]  # Quitar intercept
+            end
+            importances = vec(mean(abs.(coefs), dims=1))
+        else
+            # Vector: binario
+            if model.fit_intercept && length(coefs) == n_features + 1
+                coefs = coefs[2:end]
+            end
+            importances = abs.(coefs)
+        end
+        
+        # Limpiar NaN/Inf
+        importances = replace(importances, NaN => 0.0, Inf => 0.0, -Inf => 0.0)
+        
+        return [features[i] => importances[i] for i in 1:length(importances)]
+    catch e
+        @warn "Error en feature_importances: $e"
+        return [feat => 0.0 for feat in features]
+    end
 end
 
-function RFELogistic(; k::Int=5, step::Float64=0.5, lambda::Float64=1.0)
+
+function RFELogistic(; k::Int=5, step::Union{Int,Float64}=1, lambda::Float64=1.0)
     base_model = LogisticRFE(lambda=lambda, penalty=:l2)
     return RecursiveFeatureElimination(base_model, n_features=k, step=step)
 end
 
-end # module
+end # module

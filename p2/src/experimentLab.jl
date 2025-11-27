@@ -101,119 +101,127 @@ end
 # ==============================================================================
 # 3. EJECUTOR DE EXPERIMENTOS
 # ==============================================================================
-function run_experiment_csv(
-    scaler, filter_model, reducer_model, model, X, y, folds; 
-    tag="experiment", metrics=[accuracy], csv_path="results.csv"
+function run_experiment_crossvalidation(
+    scaler, 
+    filter_model, 
+    reducer_model, 
+    model, 
+    X, y, folds; 
+    tag="experiment", 
+    metrics::AbstractDict, # <--- TIPO CORREGIDO
+    csv_path="results.csv"
 )
 
     # 1. Pipeline
     pipe = FlexiblePipeline(
         scaler=scaler, filter=filter_model, projector=reducer_model, classifier=model
     )
-    
-    println("⚙️ Ejecutando: $tag ...")
 
-    # 2. Evaluación con múltiples métricas
+    # Extraemos medidas
+    measure_objs = collect(values(metrics))
+    measure_names = collect(keys(metrics))
+
+    # 2. Evaluación
     eval = evaluate(
         pipe, X, y,
         resampling = folds,
-        measure = metrics,
+        measure = measure_objs,
         verbosity = 0
     )
 
-    # =============================
-    # 3. Métricas de rendimiento
-    # =============================
-
-    # Cada métrica tendrá:
-    # - media
-    # - std
-    # - valores por fold
-    # Todo se añadirá al diccionario row
-
-    metric_stats = Dict{Symbol, Any}()
-
-    for (m_idx, metric) in enumerate(metrics)
-        metric_name = first(string(metric), 3)
-
-        mean_val = eval.measurement[m_idx]
-        std_val  = std(eval.per_fold[m_idx])
-        fold_vals = eval.per_fold[m_idx]
-
-        # Guardamos
-        metric_stats[Symbol(metric_name * "_Mean")] = round(mean_val, digits=4)
-        metric_stats[Symbol(metric_name * "_Std")]  = round(std_val, digits=4)
-
-        # Valores por fold
-        for (i, s) in enumerate(fold_vals)
-            metric_stats[Symbol(metric_name * "_Fold_$i")] = round(s, digits=4)
-        end
-    end
-
-    # =============================
-    # 4. INSPECCIÓN PROFUNDA
-    # =============================
+    # 3. Construcción de Resultados
+    row = Dict{Symbol, Any}()
     
+    # --- A. Metadatos ---
+    row[:Timestamp] = string(Dates.now())
+    row[:Experiment] = tag
+    row[:Model_Type] = string(typeof(model))
+    row[:Scaler] = isnothing(scaler) ? "None" : string(typeof(scaler))
+    row[:Filter] = isnothing(filter_model) ? "None" : string(typeof(filter_model))
+    row[:Projector] = isnothing(reducer_model) ? "None" : string(typeof(reducer_model))
+
+    # --- B. Dimensiones (Cálculo) ---
     n_feats_per_fold = Int[]
     n_dims_per_fold  = Int[]
     
     for r in eval.report_per_fold
-        # -- A. Features tras Filtro --
         n_f = ncol(X) 
-        if filter_model !== nothing && hasproperty(r, :filter)
-            if hasproperty(r.filter, :n_final)
-                n_f = r.filter.n_final
-            end
+        if filter_model !== nothing
+            n_f = r.filter.n_final
         end
         push!(n_feats_per_fold, n_f)
         
-        # -- B. Dimensiones tras Proyección --
         n_d = n_f
-        if reducer_model !== nothing && hasproperty(r, :projector)
-            rep_p = r.projector
-            n_d = rep_p.outdim
+        if reducer_model !== nothing
+            n_d = r.projector.outdim
         end
         push!(n_dims_per_fold, n_d)
     end
 
-    feats_mean = mean(n_feats_per_fold)
-    feats_std  = std(n_feats_per_fold)
-    dims_mean  = mean(n_dims_per_fold)
-    dims_std   = std(n_dims_per_fold)
+    f_mean, f_std = mean(n_feats_per_fold), std(n_feats_per_fold)
+    d_mean, d_std = mean(n_dims_per_fold), std(n_dims_per_fold)
+    
+    # Guardamos Dimensiones
+    row[:Feats_Original] = ncol(X)
+    row[:Feats_PostFilter] = f_mean
+    row[:Feats_PostProj] = d_mean
 
-    # =============================
-    # 5. Construcción de fila CSV
-    # =============================
+    # --- C. Métricas ---
+    for (name, m_idx) in zip(measure_names, 1:length(measure_objs))
+        mean_val = eval.measurement[m_idx]
+        std_val  = std(eval.per_fold[m_idx])
+        fold_vals = eval.per_fold[m_idx]
 
-    row = Dict(
-        :Timestamp => string(Dates.now()),
-        :Experiment => tag,
-        :Scaler => isnothing(scaler) ? "None" : string(typeof(scaler)),
-        :Filter => isnothing(filter_model) ? "None" : string(typeof(filter_model)),
-        :Projector => isnothing(reducer_model) ? "None" : string(typeof(reducer_model)),
-        :Model => string(typeof(model)),
+        row[Symbol(name * "_Mean")] = round(mean_val, digits=4)
+        row[Symbol(name * "_Std")]  = round(std_val, digits=4)
+        
+        for (i, v) in enumerate(fold_vals)
+            row[Symbol(name * "_Fold_$i")] = v
+        end
+    end
 
-        # Topología
-        :Feats_Original => ncol(X),
-        :Feats_Mean => round(feats_mean, digits=1),
-        :Feats_Std  => round(feats_std, digits=2),
-        :Dims_Mean  => round(dims_mean, digits=1),
-        :Dims_Std   => round(dims_std, digits=2)
-    )
+    # 4. Verbosity Personalizado
+    dim_str = "{$(ncol(X))} -> {$(round(f_mean, digits=1)) ± $(round(f_std, digits=1))} -> {$(round(d_mean, digits=1)) ± $(round(d_std, digits=1))}"
+    
+    println("   Exp: $tag")
+    println("   Topología: $dim_str")
+    for name in measure_names
+        m_mean = row[Symbol(name * "_Mean")]
+        m_std = row[Symbol(name * "_Std")]
+        println("     $name: $m_mean ± $m_std")
+    end
+    println("-"^60)
 
-    # Mezclar las métricas dentro del diccionario final
-    merge!(row, metric_stats)
+    # 5. Guardar CSV (CON ORDEN ESPECÍFICO)
+    df_row = DataFrame([row])
+    
+    # Definimos el orden de las columnas
+    # 1. Metadatos
+    meta_cols = [:Timestamp, :Experiment, :Model_Type, :Scaler, :Filter, :Projector]
+    
+    # 3. Dimensiones
+    dim_cols = [:Feats_Original, :Feats_PostFilter, :Feats_PostProj]
+    
+    # 2. Métricas (Todo lo que no sea meta ni dim)
+    all_cols = Symbol.(names(df_row))
+    metric_cols = setdiff(all_cols, [meta_cols; dim_cols])
+    sort!(metric_cols) # Ordenamos alfabéticamente para que queden juntas las de mismo tipo
+    
+    # ORDEN FINAL: METADATOS -> MÉTRICAS -> DIMENSIONES
+    final_order = [metric_cols; dim_cols; meta_cols]
+    
+    # Filtramos para asegurarnos de que solo pedimos columnas que existen
+    final_order = intersect(final_order, all_cols)
+    
+    # Reordenamos el DataFrame
+    select!(df_row, final_order)
 
-    # ----------------------------
-    # GUARDAR EN CSV
-    # ----------------------------
-    log_to_csv(csv_path, row)
-
-    # ----------------------------
-    # Feedback visual
-    # ----------------------------
-    println("   ✅ Completado: $tag")
-    return row
+    # Escribimos
+    if isfile(csv_path)
+        CSV.write(csv_path, df_row, append=true)
+    else
+        CSV.write(csv_path, df_row)
+    end
 end
 
 end # module

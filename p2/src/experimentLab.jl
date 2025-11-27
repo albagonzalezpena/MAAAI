@@ -103,72 +103,79 @@ end
 function run_experiment_crossvalidation(
     scaler, filter_model, reducer_model, model, X, y, folds; 
     tag="experiment", 
-    metrics::AbstractDict,
-    verbosity::Int=1
+    metrics::AbstractDict
 )
     # 1. Pipeline
     pipe = FlexiblePipeline(scaler, filter_model, reducer_model, model)
     
-    # 2. Preparar Métricas
+    # 2. Métricas
     m_names = collect(keys(metrics))
     m_objs  = collect(values(metrics))
 
-    # 3. Evaluar (Silencioso)
+    # 3. Evaluar (Importante: fitted_params_per_fold es clave para RFE)
     eval = evaluate(pipe, X, y, resampling=folds, measure=m_objs, verbosity=0)
 
-    # 4. Construir Diccionario de Resultados
+    # 4. Resultados Numéricos
     results_dict = Dict{String, Vector{Float64}}()
     for (name, idx) in zip(m_names, 1:length(m_objs))
-        # Guardamos EL VECTOR COMPLETO de resultados por fold
         results_dict[name] = eval.per_fold[idx]
     end
 
-    # 5. Calcular Estadísticas de Dimensiones
-    n_orig = size(MLJ.matrix(X), 2) 
+    # 5. Detección Inteligente de Dimensiones
+    n_orig = length(MLJ.schema(X).names)
     n_filt_list = Int[]
     n_proj_list = Int[]
 
-    for r in eval.report_per_fold
-        # Filtro
+    # Iteramos Reportes (Para ANOVA/Pearson) y Fitted Params (Para RFE)
+    for (r, fp) in zip(eval.report_per_fold, eval.fitted_params_per_fold)
+        
         nf = n_orig
-        if filter_model !== nothing && hasproperty(r, :filter) && hasproperty(r.filter, :n_final)
-            nf = r.filter.n_final
+        
+        # --- Lógica de Detección del Filtro ---
+        if filter_model !== nothing
+            # A. Filtros Nativos (ANOVA, Pearson...) -> Usan Reporte
+            if hasproperty(r, :filter) && hasproperty(r.filter, :n_final)
+                nf = r.filter.n_final
+            
+            # B. Wrapper RFE -> Usa Fitted Params (:features_left)
+            elseif hasproperty(fp, :filter) && hasproperty(fp.filter, :features_left)
+                nf = length(fp.filter.features_left)
+            
+            # C. Wrapper Standard (Fallback) -> Usa Fitted Params (:selected_features)
+            elseif hasproperty(fp, :filter) && hasproperty(fp.filter, :selected_features)
+                nf = length(fp.filter.selected_features)
+            end
         end
+        
         push!(n_filt_list, nf)
 
-        # Proyección
+        # --- Lógica de Detección del Proyector ---
         np = nf
-        if reducer_model !== nothing
-            np = r.projector.outdim
+        if reducer_model !== nothing && hasproperty(r, :projector) && hasproperty(r.projector, :outdim)
+             np = r.projector.outdim
         end
         push!(n_proj_list, np)
     end
 
-    # 6. Verbosity
-
+    # Estadísticas
     f_mean, f_std = mean(n_filt_list), std(n_filt_list)
     p_mean, p_std = mean(n_proj_list), std(n_proj_list)
 
-    if verbosity == 1
-
-        dim_str = "{$n_orig} -> {$(round(f_mean, digits=1)) ± $(round(f_std, digits=1))} -> {$(round(p_mean, digits=1)) ± $(round(p_std, digits=1))}"
-        print("Exp: $tag   Topología: $dim_str")
-        
-        for (name, vals) in results_dict
-            m = round(mean(vals), digits=4)
-            s = round(std(vals), digits=4)
-            print("     $name: $m ± $s")
-        end
-        println() 
+    # Verbosity
+    dim_str = "{$n_orig} -> {$(round(f_mean, digits=1))} -> {$(round(p_mean, digits=1))}"
+    print("Exp: $tag   Dims: $dim_str")
+    for (name, vals) in results_dict
+        print("   $name: $(round(mean(vals), digits=3))")
     end
+    println()
 
-    # 7. Crear Objeto History
+    # 6. Objeto History
     history = History(
         tag,
         results_dict,
         n_orig,
-        (mean(n_filt_list), std(n_filt_list)), # Tupla Filter
-        (mean(n_proj_list), std(n_proj_list))  # Tupla Proj
+        (f_mean, f_std),
+        (p_mean, p_std)
     )
 
     return history

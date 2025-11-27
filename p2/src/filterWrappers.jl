@@ -392,7 +392,7 @@ output_scitype(::Type{<:MutualInfoSelector}) = Table(Continuous)
 # ==============================================================================
 # Logistic Regression Wrapper para MLJ
 # ==============================================================================
-mutable struct LogisticRFE <: MLJModelInterface.Probabilistic  # ⬅️ CAMBIO A Deterministic
+mutable struct LogisticRFE <: MLJModelInterface.Probabilistic  
     lambda::Float64
     penalty::Symbol
     fit_intercept::Bool
@@ -405,7 +405,7 @@ MLJModelInterface.input_scitype(::Type{<:LogisticRFE}) = Table(Continuous)
 MLJModelInterface.target_scitype(::Type{<:LogisticRFE}) = AbstractVector{<:Finite}
 MLJModelInterface.reports_feature_importances(::Type{<:LogisticRFE}) = true
 
-# ⬅️ Devolver el MISMO TIPO que el modelo base
+#  Devolver el MISMO TIPO que el modelo base
 function MLJModelInterface.fit(model::LogisticRFE, verbosity::Int, X, y)
 
     # NO convertir y aquí - dejar que MultinomialClassifier lo haga
@@ -422,7 +422,7 @@ function MLJModelInterface.fit(model::LogisticRFE, verbosity::Int, X, y)
     # Guardar features
     features = collect(Tables.columnnames(X))
     
-    # ⬅️ CLAVE: Devolver estructura correcta para MLJ
+    #  CLAVE: Devolver estructura correcta para MLJ
     # fitresult debe ser algo que predict pueda usar
     fitresult = (mach=mach, features=features)
     cache = nothing
@@ -431,48 +431,83 @@ function MLJModelInterface.fit(model::LogisticRFE, verbosity::Int, X, y)
     return fitresult, cache, report_content
 end
 
-# ⬅️ Predict debe devolver clases (Deterministic)
+#  Predict debe devolver clases (Deterministic)
 function MLJModelInterface.predict(model::LogisticRFE, fitresult, Xnew)
     mach = fitresult.mach
     return predict(mach, Xnew)  # Clases directas
 end
 
-
 function MLJModelInterface.feature_importances(model::LogisticRFE, fitresult, report)
     mach = fitresult.mach
     features = fitresult.features
+    n_features = length(features)
     
     try
         fp = fitted_params(mach)
-        coefs = fp.coefs
-        n_features = length(features)
         
-        # Manejar matriz (multiclase) o vector (binario)
-        if coefs isa AbstractMatrix
-            # Promedio absoluto sobre clases
-            # Si tiene intercept, es (n_classes, n_features+1)
-            if model.fit_intercept && size(coefs, 2) == n_features + 1
-                coefs = coefs[:, 2:end]  # Quitar intercept
-            end
-            importances = vec(mean(abs.(coefs), dims=1))
-        else
-            # Vector: binario
-            if model.fit_intercept && length(coefs) == n_features + 1
-                coefs = coefs[2:end]
-            end
-            importances = abs.(coefs)
+        if !haskey(fp, :coefs)
+            @warn "No se encontraron coeficientes"
+            return [feat => 0.0 for feat in features]
         end
         
-        # Limpiar NaN/Inf
+        # ESTRUCTURA REAL:
+        # fp.coefs = [
+        #   :Feature_1 => [coef_clase1, coef_clase2, ..., coef_claseN],
+        #   :Feature_2 => [coef_clase1, coef_clase2, ..., coef_claseN],
+        #   ...
+        # ]
+        coefs_pairs = fp.coefs
+        
+        # Calcular importancia para cada feature
+        # Importancia = promedio del valor absoluto sobre todas las clases
+        importances = Float64[]
+        
+        for pair in coefs_pairs
+            feature_name = pair.first
+            coefs_across_classes = pair.second  # Vector de coeficientes de esta feature en todas las clases
+            
+            # Importancia = promedio de |coef| sobre todas las clases
+            importance = mean(abs.(coefs_across_classes))
+            push!(importances, importance)
+        end
+        
+        # Verificar que tengamos la cantidad correcta
+        if length(importances) != n_features
+            @warn "Mismatch: $(length(importances)) importancias calculadas vs $n_features features esperadas"
+            # Ajustar si es necesario
+            if length(importances) > n_features
+                importances = importances[1:n_features]
+            else
+                append!(importances, zeros(n_features - length(importances)))
+            end
+        end
+        
+        # Limpiar valores inválidos
         importances = replace(importances, NaN => 0.0, Inf => 0.0, -Inf => 0.0)
         
-        return [features[i] => importances[i] for i in 1:length(importances)]
+        # Devolver como Vector de Pairs
+        return [features[i] => importances[i] for i in 1:n_features]
+        
     catch e
-        @warn "Error en feature_importances: $e"
+        @warn "Error calculando importances: $e"
+        @warn "Información de debug:"
+        @warn "  - n_features esperadas: $n_features"
+        try
+            fp = fitted_params(mach)
+            coefs_pairs = fp.coefs
+            @warn "  - n_pairs en coefs: $(length(coefs_pairs))"
+            if length(coefs_pairs) > 0
+                @warn "  - nombre primer par: $(coefs_pairs[1].first)"
+                @warn "  - tamaño array primer par: $(length(coefs_pairs[1].second))"
+                @warn "  - tipo array: $(typeof(coefs_pairs[1].second))"
+            end
+            @warn "  - fit_intercept: $(model.fit_intercept)"
+        catch
+        end
+        @warn sprint(showerror, e, catch_backtrace())
         return [feat => 0.0 for feat in features]
     end
 end
-
 
 function RFELogistic(; k::Int=5, step::Union{Int,Float64}=1, lambda::Float64=1.0)
     base_model = LogisticRFE(lambda=lambda, penalty=:l2)

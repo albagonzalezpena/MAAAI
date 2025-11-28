@@ -162,7 +162,7 @@ function run_experiment_crossvalidation(
     p_mean, p_std = mean(n_proj_list), std(n_proj_list)
 
     # Verbosity
-    dim_str = "{$n_orig} -> {$(round(f_mean, digits=1))} -> {$(round(p_mean, digits=1))}"
+    dim_str = "{$n_orig} -> {$(round(f_mean, digits=1)) ± $(round(f_std, digits=1))} -> {$(round(p_mean, digits=1)) ± $(round(p_std, digits=1))}"
     print("Exp: $tag   Dims: $dim_str")
     for (name, vals) in results_dict
         print("   $name: $(round(mean(vals), digits=3))")

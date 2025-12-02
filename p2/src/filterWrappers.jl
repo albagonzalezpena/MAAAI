@@ -10,6 +10,7 @@ using LinearAlgebra
 using MLJModelInterface
 using CategoricalArrays
 using Tables 
+using FeatureSelection
 
 import MLJLinearModels
 import MLJModelInterface: fit, transform, predict, input_scitype, target_scitype, output_scitype

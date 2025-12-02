@@ -7,11 +7,17 @@ using LIBSVM
 using NearestNeighborModels 
 using Random
 using Optimisers
+using MLJEnsembles
+using EvoTrees
+using MLJDecisionTreeInterface
 
 # Exportamos las funciones factoría
-export get_knn_model, get_svm_model, get_mlp_model
+export get_knn_model, get_svm_model, get_mlp_model, get_bagging_knn_model, get_evotree_model, get_adaboost_model
 
 const MLJ_SVC = @load ProbabilisticSVC pkg=LIBSVM verbosity=0
+const MLJ_EvoTree = @load EvoTreeClassifier pkg=EvoTrees verbosity=0
+const AdaBoostStump = @load AdaBoostStumpClassifier pkg=DecisionTree verbosity=0
+
 
 # ==============================================================================
 # 1. BUILDER DINÁMICO PARA MLP 
@@ -88,4 +94,57 @@ function get_mlp_model(hidden_layers::Vector{Int}; epochs::Int=50, learning_rate
     )
 end
 
-end # module
+# ==============================================================================
+# 5. FACTORY: BAGGING (KNN BASE)
+# ==============================================================================
+"""
+Devuelve un modelo de Bagging usando KNN como clasificador base.
+Parámetros:
+  - k: Número de vecinos para el KNN base (ej: 5).
+  - n_estimators: Número de modelos en el ensemble (ej: 10, 50).
+  - fraction: Porcentaje de datos a usar en cada bolsa (default: 0.8).
+"""
+function get_bagging_knn_model(k::Int, n_estimators::Int; fraction::Float64=0.8)
+    
+    # Definir modelo base
+    base_model = KNNClassifier(K=k)
+    
+    # Crear ensemble
+    return EnsembleModel(
+        model = base_model,
+        n = n_estimators,
+        bagging_fraction = fraction
+    )
+end
+
+# ==============================================================================
+# 6. FACTORY: ADABOOST (Decision Stumps)
+# ==============================================================================
+"""
+Devuelve un modelo AdaBoost usando 'Decision Stumps' (árboles de profundidad 1).
+Este es el algoritmo clásico de AdaBoost.
+Parámetros:
+  - n_estimators: Número de iteraciones (estimadores).
+"""
+function get_adaboost_model(n_estimators::Int)
+    return AdaBoostStump(
+        n_iter = n_estimators  # Mapeamos el argumento al parámetro interno
+    )
+end
+
+
+# ==============================================================================
+# 7. FACTORY: EvoTree
+# ==============================================================================
+
+function get_evotree_model(n_estimators::Int; learning_rate::Float64=0.2)
+
+    return MLJ_EvoTree(
+        nrounds = n_estimators,
+        eta = learning_rate,
+        max_depth = 5,  
+        nbins = 32      # Discretización para acelerar (estándar en boosting)
+    )
+end
+
+end # module

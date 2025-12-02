@@ -64,8 +64,7 @@ function run_kruskal_wallis(data_matrix::Matrix{Float64}; alpha=0.05)
     end
 end
 
-
-function run_wilcoxon_comparison(data_matrix::Matrix{Float64}, model_names::Vector{String}; alpha=0.05)
+function paired_ttest(data_matrix::Matrix{Float64}, model_names::Vector{String}; alpha=0.05)
     
     # Determinar referencia técnica (Mayor Media)
     means = vec(mean(data_matrix, dims=1))
@@ -75,7 +74,7 @@ function run_wilcoxon_comparison(data_matrix::Matrix{Float64}, model_names::Vect
     ref_vec = data_matrix[:, ref_idx]
     ref_mean = mean(ref_vec)
 
-    println("\n--- Comparativa por Pares (Wilcoxon Signed-Rank) ---")
+    println("\n--- Comparativa por Pares (Paired T-Test) ---")
     println("Referencia: $ref_name (Media: $(round(ref_mean, digits=4)))")
     
     # Construcción de la tabla
@@ -88,14 +87,15 @@ function run_wilcoxon_comparison(data_matrix::Matrix{Float64}, model_names::Vect
         current_vec = data_matrix[:, i]
         diff = ref_mean - mean(current_vec)
         
-        # Test Wilcoxon
-        # Nota: p-value bilateral
+        # Test T-Test Pareado
+        # Se asume que las muestras son dependientes (mismos folds de CV)
         if current_vec == ref_vec
             pv = 1.0
             sig_str = "-"
         else
-            wt = SignedRankTest(ref_vec, current_vec)
-            pv = pvalue(wt)
+            # OneSampleTTest(x, y) es equivalente a un Paired T-Test en Julia
+            tt = OneSampleTTest(ref_vec, current_vec) 
+            pv = pvalue(tt)
             sig_str = pv < alpha ? "Si" : "No"
         end
         
@@ -125,14 +125,17 @@ function auto_compare_models(histories::Vector{History}, metric_name::String="Ac
     
     mat, names = get_metric_matrix(histories, metric_name)
     n_models = length(names)
+    execute_paired = true
 
     # 1. Test Global (KW) si hay más de 2 grupos
     if n_models > 2
-        run_kruskal_wallis(mat, alpha=alpha)
+        execute_paired = run_kruskal_wallis(mat, alpha=alpha)
     end
-    
-    # 2. Test Pareado (Wilcoxon)
-    run_wilcoxon_comparison(mat, names, alpha=alpha)
+
+    if execute_paired
+        # Test Pareado (t-test)
+        paired_ttest(mat, names, alpha=alpha)
+    end
     
     println("\n" * "="^60)
 end

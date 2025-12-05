@@ -7,7 +7,7 @@ using PrettyTables
 using CategoricalArrays
 using ..ExperimentLab: History
 
-export display_cv_table, plot_cv_results
+export display_cv_table, plot_cv_results, display_holdout_table
 
 function display_cv_table(histories::Vector{History}, metric_names::Vector{String})
     
@@ -47,6 +47,50 @@ function display_cv_table(histories::Vector{History}, metric_names::Vector{Strin
         alignment = :l,
         crop = :none,
         formatters = ft_printf("%.4f", 2:n_cols) # Formato solo para columnas numéricas
+    )
+end
+
+function display_holdout_table(histories::Vector{History}, metric_names::Vector{String})
+    
+    # Construcción de cabeceras (Solo nombres de métricas, sin Mean/Std)
+    headers = String["Experiment"]
+    append!(headers, metric_names)
+
+    # Matriz de datos
+    n_rows = length(histories)
+    n_cols = length(headers)
+    data = Matrix{Any}(undef, n_rows, n_cols)
+
+    for (i, h) in enumerate(histories)
+        data[i, 1] = h.name
+        
+        # Llenado de métricas
+        col_idx = 2
+        for m in metric_names
+            # En Holdout, el vector de métricas solo tiene 1 elemento
+            # Asumimos que existe; si no, daría error igual que la original
+            vals = h.metrics[m]
+            
+            # Tomamos el primer y único valor
+            data[i, col_idx] = vals[1]
+            col_idx += 1
+        end
+    end
+
+    # Ordenar por la primera métrica (descendente)
+    # La columna 2 corresponde a la primera métrica de la lista
+    if n_rows > 0 && n_cols > 1
+        sort_idx = sortperm(Float64.(data[:, 2]), rev=true)
+        data = data[sort_idx, :]
+    end
+
+    # Renderizado
+    pretty_table(
+        data;
+        header = headers,
+        alignment = :l,
+        crop = :none,
+        formatters = ft_printf("%.4f", 2:n_cols) # Formato para todas las cols de métricas
     )
 end
 

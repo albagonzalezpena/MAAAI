@@ -13,7 +13,7 @@ using CategoricalArrays
 # Importamos utilidades para definir la red
 import MLJBase: source, machine, node
 
-export run_experiment_csv, History
+export run_experiment_crossvalidation, History, run_experiment_holdout
 
 # ==============================================================================
 # LEARNING NETWORK
@@ -63,7 +63,7 @@ function MLJBase.prefit(model::FlexiblePipeline, verbosity, X, y)
 
     # --- PASO 3: PROYECTOR (HÍBRIDO) ---
     if model.projector !== nothing
-        # Detectamos si el modelo es supervisado (como LDA) o no (como PCA)
+        # Detectamos si el modelo es supervisado
         if is_supervised(model.projector)
             mach_proj = machine(:projector, current_X, ys)
         else
@@ -179,6 +179,85 @@ function run_experiment_crossvalidation(
     )
 
     return history
+end
+
+# ==============================================================================
+# 4. EJECUTOR DE EXPERIMENTOS HOLDOUT
+# ==============================================================================
+
+function run_experiment_holdout(
+    scaler, filter_model, reducer_model, model, 
+    X_train, y_train, X_test, y_test; 
+    tag="Final_Test", 
+    metrics::AbstractDict
+)
+
+    # Construir Pipeline y Máquina
+    pipe = FlexiblePipeline(scaler, filter_model, reducer_model, model)
+    mach = machine(pipe, X_train, y_train)
+
+    # Entrenar con todo el conjunto de Train
+    MLJ.fit!(mach, verbosity=0)
+
+    # Predecir sobre Test
+    y_probs = MLJ.predict(mach, X_test)
+    y_mode  = MLJ.predict_mode(mach, X_test)
+
+    results_dict = Dict{String, Vector{Float64}}()
+    
+    for (name, measure_fn) in metrics
+        try
+            # calcular la métrica con probabilidades
+            val = measure_fn(y_probs, y_test)
+            results_dict[name] = [val]
+        catch
+            # calcular la métrica con modas
+            val = measure_fn(y_mode, y_test)
+            results_dict[name] = [val]
+        end
+    end
+
+
+    # Detección de dimensiones para el report
+    r = report(mach)
+    fp = fitted_params(mach)
+    n_orig = length(MLJ.schema(X_train).names)
+    nf = n_orig
+
+    # Filtrado
+    if filter_model !== nothing
+        if hasproperty(r, :filter) && hasproperty(r.filter, :n_final)
+            nf = r.filter.n_final
+        elseif hasproperty(fp, :filter) && hasproperty(fp.filter, :features_left)
+            nf = length(fp.filter.features_left) # Para tu RFE manual
+        elseif hasproperty(fp, :filter) && hasproperty(fp.filter, :selected_features)
+            nf = length(fp.filter.selected_features)
+        end
+    end
+    
+    # REductor por proyección
+    np = nf
+    if reducer_model !== nothing && hasproperty(r, :projector) && hasproperty(r.projector, :outdim)
+         np = r.projector.outdim
+    end
+
+    # Verbosity
+    dim_str = "{$n_orig} -> {$nf} -> {$np}"
+    println("\nDimensiones finales: $dim_str")
+    print("Métricas en Test:")
+    for (name, vals) in results_dict
+        print("   $name: $(round(vals[1], digits=4))")
+    end
+    println("\n" * "="^60)
+
+    # Devolver history
+    return History(
+        tag,
+        results_dict,
+        n_orig,
+        (Float64(nf), 0.0),
+        (Float64(np), 0.0)
+    )
 end
 
 end # module

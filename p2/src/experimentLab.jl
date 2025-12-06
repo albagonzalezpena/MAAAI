@@ -15,6 +15,9 @@ import MLJBase: source, machine, node
 
 export run_experiment_crossvalidation, History, run_experiment_holdout
 
+# ==============================================================================
+# HELPER PARA FEATURE IMPORTANCE
+# ==============================================================================
 
 function safe_get_importances(mach)
     try
@@ -254,7 +257,7 @@ function run_experiment_holdout(
 
     feature_importance = nothing
 
-    # Clasificador: acceder al report para feature importance
+    # Clasificador: extraer feature importance
     if hasproperty(r, :feature_importances) && r.feature_importances !== nothing
         feature_importance = r.feature_importances
     end

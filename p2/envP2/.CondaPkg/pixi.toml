@@ -1,9 +1,6 @@
 [dependencies]
 openssl = ">=3, <3.6"
-
-    [dependencies.scikit-learn]
-    channel = "conda-forge"
-    version = ">=1.4, <1.6"
+catboost = ">=1.1"
 
     [dependencies.python]
     channel = "conda-forge"

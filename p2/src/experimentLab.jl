@@ -15,6 +15,15 @@ import MLJBase: source, machine, node
 
 export run_experiment_crossvalidation, History, run_experiment_holdout
 
+
+function safe_get_importances(mach)
+    try
+        return feature_importances(mach)
+    catch
+        return nothing
+    end
+end
+
 # ==============================================================================
 # LEARNING NETWORK
 # ==============================================================================
@@ -77,6 +86,8 @@ function MLJBase.prefit(model::FlexiblePipeline, verbosity, X, y)
     # --- PASO 4: CLASIFICADOR ---
     mach_clf = machine(:classifier, current_X, ys)
     yhat = MLJ.predict(mach_clf, current_X)
+    reports[:classifier] = node(report, mach_clf)
+    reports[:feature_importances] = node(safe_get_importances, mach_clf)
 
     # Exponemos la predicción y los reportes acumulados
     # Convertimos el dict a NamedTuple para cumplir con la interfaz de MLJ
@@ -86,7 +97,7 @@ function MLJBase.prefit(model::FlexiblePipeline, verbosity, X, y)
 end
 
 # ==============================================================================
-# 2. HISTORY
+# HISTORY
 # ==============================================================================
 
 struct History
@@ -95,10 +106,11 @@ struct History
     input_dim::Int
     filter_dim::Tuple{Float64, Float64}
     proj_dim::Tuple{Float64, Float64}
+    feature_importances::Any
 end
 
 # ==============================================================================
-# 3. EJECUTOR DE EXPERIMENTOS CROSSVALIDATION
+# EJECUTOR DE EXPERIMENTOS CROSSVALIDATION
 # ==============================================================================
 function run_experiment_crossvalidation(
     scaler, filter_model, reducer_model, model, X, y, folds; 
@@ -175,14 +187,15 @@ function run_experiment_crossvalidation(
         results_dict,
         n_orig,
         (f_mean, f_std),
-        (p_mean, p_std)
+        (p_mean, p_std),
+        nothing
     )
 
     return history
 end
 
 # ==============================================================================
-# 4. EJECUTOR DE EXPERIMENTOS HOLDOUT
+# EJECUTOR DE EXPERIMENTOS HOLDOUT
 # ==============================================================================
 
 function run_experiment_holdout(
@@ -200,20 +213,18 @@ function run_experiment_holdout(
     MLJ.fit!(mach, verbosity=0)
 
     # Predecir sobre Test
-    y_probs = MLJ.predict(mach, X_test)
     y_mode  = MLJ.predict_mode(mach, X_test)
 
     results_dict = Dict{String, Vector{Float64}}()
     
+    # Calcular métricas
     for (name, measure_fn) in metrics
         try
-            # calcular la métrica con probabilidades
-            val = measure_fn(y_probs, y_test)
-            results_dict[name] = [val]
-        catch
-            # calcular la métrica con modas
             val = measure_fn(y_mode, y_test)
             results_dict[name] = [val]
+        catch e
+            @warn "Error calculando métrica $name" exception=e
+            results_dict[name] = [0.0]
         end
     end
 
@@ -235,20 +246,26 @@ function run_experiment_holdout(
         end
     end
     
-    # REductor por proyección
+    # Reductor por proyección
     np = nf
     if reducer_model !== nothing && hasproperty(r, :projector) && hasproperty(r.projector, :outdim)
          np = r.projector.outdim
     end
 
+    feature_importance = nothing
+
+    # Clasificador: acceder al report para feature importance
+    if hasproperty(r, :feature_importances) && r.feature_importances !== nothing
+        feature_importance = r.feature_importances
+    end
+
     # Verbosity
     dim_str = "{$n_orig} -> {$nf} -> {$np}"
-    println("\nDimensiones finales: $dim_str")
-    print("Métricas en Test:")
+    print("Exp: $tag   Dims: $dim_str")
     for (name, vals) in results_dict
-        print("   $name: $(round(vals[1], digits=4))")
+        print("   $name: $(round((vals[1]), digits=4))")
     end
-    println("\n" * "="^60)
+    println()
 
     # Devolver history
     return History(
@@ -256,7 +273,8 @@ function run_experiment_holdout(
         results_dict,
         n_orig,
         (Float64(nf), 0.0),
-        (Float64(np), 0.0)
+        (Float64(np), 0.0),
+        feature_importance
     )
 end
 

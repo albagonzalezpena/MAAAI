@@ -12,11 +12,12 @@ using EvoTrees
 using MLJDecisionTreeInterface
 
 # Exportamos las funciones factoría
-export get_knn_model, get_svm_model, get_mlp_model, get_bagging_knn_model, get_evotree_model, get_adaboost_model
+export get_knn_model, get_svm_model, get_mlp_model, get_bagging_knn_model, get_evotree_model, get_adaboost_model, get_rf_model
 
 const MLJ_SVC = @load ProbabilisticSVC pkg=LIBSVM verbosity=0
 const MLJ_EvoTree = @load EvoTreeClassifier pkg=EvoTrees verbosity=0
 const AdaBoostStump = @load AdaBoostStumpClassifier pkg=DecisionTree verbosity=0
+const MLJ_RF = @load RandomForestClassifier pkg=DecisionTree verbosity=0
 
 
 # ==============================================================================
@@ -144,6 +145,26 @@ function get_evotree_model(n_estimators::Int; learning_rate::Float64=0.2)
         eta = learning_rate,
         max_depth = 5,  
         nbins = 32      # Discretización para acelerar (estándar en boosting)
+    )
+end
+
+# ==============================================================================
+# 7. FACTORY: Random Forest
+# ==============================================================================
+
+"""
+Devuelve un modelo Random Forest.
+Parámetros:
+  - n_trees: Número de árboles.
+  - min_samples_split: Mínimo de muestras para dividir un nodo (control de overfitting).
+"""
+function get_rf_model(n_trees::Int; max_depth::Int=10)
+    return MLJ_RF(
+        n_trees = n_trees,
+        max_depth = max_depth,         
+        min_samples_split = 2,
+        sampling_fraction = 1.0,       # Bagging de filas (80% datos por árbol)
+        n_subfeatures = -1             # -1 significa sqrt(n_features) (Estándar en RF)
     )
 end
 

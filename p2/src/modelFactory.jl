@@ -1,7 +1,5 @@
 module ModelFactory
 
-
-
 using MLJ
 using MLJFlux      
 using Flux         

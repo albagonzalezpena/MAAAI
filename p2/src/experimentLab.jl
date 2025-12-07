@@ -61,7 +61,6 @@ function MLJBase.prefit(model::FlexiblePipeline, verbosity, X, y)
     if model.scaler !== nothing
         mach_scaler = machine(:scaler, current_X)
         current_X = MLJ.transform(mach_scaler, current_X)
-        # No solemos necesitar reporte del scaler, pero lo guardamos por consistencia
         reports[:scaler] = node(report, mach_scaler)
     end
 
@@ -232,7 +231,7 @@ function run_experiment_holdout(
     end
 
 
-    # Detección de dimensiones para el report
+    # Informacion sobre filtrado
     r = report(mach)
     fp = fitted_params(mach)
     n_orig = length(MLJ.schema(X_train).names)
@@ -249,7 +248,7 @@ function run_experiment_holdout(
         end
     end
     
-    # Reductor por proyección
+    # Informacion sobre la por proyección
     np = nf
     if reducer_model !== nothing && hasproperty(r, :projector) && hasproperty(r.projector, :outdim)
          np = r.projector.outdim

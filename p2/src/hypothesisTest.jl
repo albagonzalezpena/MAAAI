@@ -4,7 +4,6 @@ using Statistics
 using HypothesisTests
 using PrettyTables
 using DataFrames
-# Asumiendo que ExperimentLab ya está cargado en el entorno principal
 using ..ExperimentLab: History
 
 export get_metric_matrix, run_friedman_test, run_wilcoxon_comparison, auto_compare_models

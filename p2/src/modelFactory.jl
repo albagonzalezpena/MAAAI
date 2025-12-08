@@ -207,7 +207,7 @@ function get_lightgbm_model(n_iters::Int)
 
     return MLJ_LGBM(
         num_iterations = n_iters,
-        objective = "multiclass", # O "binary" si fuera el caso
+        objective = "multiclass", 
         metric = ["multi_logloss"],        
         verbosity = -1
     )
@@ -221,7 +221,7 @@ function get_catboost_model()
     return MLJ_CatBoost(
         thread_count = 1,   
         devices = nothing,        
-        task_type = "CPU",          # Aseguramos que no busque GPUs raras
+        task_type = "CPU",          
         allow_writing_files = false)
 end
 
@@ -231,18 +231,6 @@ end
 # Feature Subspace Hard Voting Classifier
 # ===================================================
 
-"""
-    PartitionedVotingClassifier <: Probabilistic
-
-    Un clasificador ensemble que divide las características (columnas) en N particiones disjuntas.
-    Entrena un modelo base en cada subconjunto de características y combina las predicciones
-    mediante Votación Mayoritaria (Hard Voting).
-
-    # Campos
-    - `model::Probabilistic`: Modelo base (ej. SVM, KNN).
-    - `n_partitions::Int`: En cuántos subconjuntos dividir las características.
-    - `rng::Int`: Semilla para mezclar las características antes de dividir.
-"""
 
 mutable struct PartitionedVotingClassifier <: Probabilistic
     model::Probabilistic
@@ -254,13 +242,7 @@ function PartitionedVotingClassifier(; model=nothing, n_partitions=3, rng=104)
     return PartitionedVotingClassifier(model, n_partitions, rng)
 end
 
-"""
-    MLJModelInterface.fit(model, verbosity, X, y)
 
-    1. Baraja las características (features).
-    2. Las divide en `n_partitions` grupos.
-    3. Entrena una copia del modelo base para cada grupo de características.
-"""
 function MLJModelInterface.fit(m::PartitionedVotingClassifier, verbosity::Int, X, y)
     
     # 1. Obtener nombres de las características
@@ -313,11 +295,6 @@ function MLJModelInterface.fit(m::PartitionedVotingClassifier, verbosity::Int, X
     return fitresults, cache, report
 end
 
-"""
-    MLJModelInterface.predict_mode(model, fitresult, Xnew)
-
-    Implementa la **Votación Dura** (Mayoría).
-"""
 function MLJModelInterface.predict_mode(m::PartitionedVotingClassifier, fitresult, Xnew)
 
     machines       = fitresult.machines
@@ -388,12 +365,7 @@ function MLJModelInterface.predict_mode(m::PartitionedVotingClassifier, fitresul
     return final_predictions
 end
 
-"""
-    MLJModelInterface.predict(model, fitresult, Xnew)
 
-    Envuelve la predicción dura en un formato Probabilístico para que el Pipeline no falle.
-    Devuelve probabilidad 1.0 para la clase ganadora.
-"""
 function MLJModelInterface.predict(m::PartitionedVotingClassifier, fitresult, Xnew)
 
     # Obtener la clase ganadore

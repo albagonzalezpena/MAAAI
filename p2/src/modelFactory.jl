@@ -12,7 +12,7 @@ using EvoTrees
 using MLJDecisionTreeInterface
 using MLJXGBoostInterface
 using LightGBM
-using CatBoost
+#using CatBoost
 using MLJBase
 using MLJModelInterface
 using CategoricalArrays
@@ -27,7 +27,7 @@ export get_knn_model,
        get_rf_model, 
        get_xgboost_model, 
        get_lightgbm_model, 
-       get_catboost_model,
+       #get_catboost_model,
        get_voting_classifier,
        get_stacking_model,
        get_individual_wise_CV,
@@ -40,7 +40,7 @@ const AdaBoostStump = @load AdaBoostStumpClassifier pkg=DecisionTree verbosity=0
 const MLJ_RF = @load RandomForestClassifier pkg=DecisionTree verbosity=0
 const MLJ_XGBoost   = @load XGBoostClassifier pkg=XGBoost verbosity=0
 const MLJ_LGBM = LightGBM.MLJInterface.LGBMClassifier
-const MLJ_CatBoost = @load CatBoostClassifier pkg=CatBoost verbosity=0
+# const MLJ_CatBoost = @load CatBoostClassifier pkg=CatBoost verbosity=0
 
 
 # ==============================================================================

@@ -1,5 +1,12 @@
 module ResultAnalysis
 
+"""
+    Módulo adaptado a nuestra gestión de resultados de experimentos
+    que nos permite generar gráficas y tablas ad-hoc para cada experimento de 
+    manera sencilla abstrayendo su funcionamiento, con el fin de crear un notebook
+    más claro centrado en el análisis de resultados.
+"""
+
 using Statistics
 using StatsPlots
 using Plots.Measures
@@ -9,6 +16,19 @@ using ..ExperimentLab: History
 using Plots
 
 export display_cv_table, plot_cv_results, display_holdout_table, display_confussion_matrix, process_feature_importance
+
+"""
+    Método que nos permite crear una tabla mostrando los resultados de
+    la ejecución de experimentos con crossvalidation (muestra estadísticas
+    como media y std).
+
+    Params:
+        - histories: vector de historiales de los modelos entrenados.
+        - metric_names: métricas que se quieren mostrar en las tablas.
+
+    Returns:
+        nothing
+"""
 
 function display_cv_table(histories::Vector{History}, metric_names::Vector{String})
     
@@ -41,15 +61,26 @@ function display_cv_table(histories::Vector{History}, metric_names::Vector{Strin
     sort_idx = sortperm(Float64.(data[:, 2]), rev=true)
     data = data[sort_idx, :]
 
-    # Renderizado
+    # Contruir tabla estructurada
     pretty_table(
         data;
         header = headers,
         alignment = :l,
         crop = :none,
-        formatters = ft_printf("%.4f", 2:n_cols) # Formato solo para columnas numéricas
+        formatters = ft_printf("%.4f", 2:n_cols)
     )
 end
+
+"""
+    Esta función devuelve tablas ad-hoc para experimentos con holdout, 
+    ya que no se calculan ni muestran estadísticas sobre las métricas.
+
+    Params:
+        - histories: vector con historiales de resultados de los modelos.
+        - metric_names: métricas que se quieren mostrar.
+    Returns:
+        nothing.
+"""
 
 function display_holdout_table(histories::Vector{History}, metric_names::Vector{String})
     
@@ -68,8 +99,7 @@ function display_holdout_table(histories::Vector{History}, metric_names::Vector{
         # Llenado de métricas
         col_idx = 2
         for m in metric_names
-            # En Holdout, el vector de métricas solo tiene 1 elemento
-            # Asumimos que existe; si no, daría error igual que la original
+            # En holdout el vector de métricas solo tiene un elemento
             vals = h.metrics[m]
             
             # Tomamos el primer y único valor
@@ -85,22 +115,37 @@ function display_holdout_table(histories::Vector{History}, metric_names::Vector{
         data = data[sort_idx, :]
     end
 
-    # Renderizado
+    # Contruir tabla estructurada
     pretty_table(
         data;
         header = headers,
         alignment = :l,
         crop = :none,
-        formatters = ft_printf("%.4f", 2:n_cols) # Formato para todas las cols de métricas
+        formatters = ft_printf("%.4f", 2:n_cols)
     )
 end
 
+"""
+    Este método nos permite obtener una representación gráfica de los
+    retultados de un experimento. Crea un boxplot de los resultados de la 
+    métrica especificada.
+
+    Además, guarda la gráfica en la carpeta destinada a los resultados de 
+    los experimentos.
+
+    Params:
+        - histories: vector con los resultados del experimento.
+        - metric_name: nombre de la métrica a graficar.
+        - name: nombre del experimento.
+"""
+
 function plot_cv_results(histories::Vector{History}, metric_name::String, name::String)
     
-    # Aplanado de datos para plotting
+    # Aplanamos datos para plottinf
     scenarios = String[]
     values = Float64[]
     
+    # Obtener métricas de los historiales
     for h in histories
         if haskey(h.metrics, metric_name)
             fold_data = h.metrics[metric_name]
@@ -109,7 +154,7 @@ function plot_cv_results(histories::Vector{History}, metric_name::String, name::
         end
     end
 
-    # Ordenar resultados por mediana
+    # Ordenar resultados por mediana (estamos usando tests grupales no paramétricos)
     unique_scenarios = unique(scenarios)
     medians = map(unique_scenarios) do s
         idx = scenarios .== s
@@ -149,6 +194,21 @@ function plot_cv_results(histories::Vector{History}, metric_name::String, name::
     return p
 end
 
+"""
+    Función que crea una representación gráfica de la matriz de confusión obtenida
+    durante el entrenamiento.
+
+    Además, se guarda el resultado en la carpeta destinada a los resultados del
+    experimento.
+
+    Params:
+        - matrix: matriz de confusión.
+        - class_labels: nombres de las clases del problema ordenadas.
+        - class_counts: conteo de clases para representación realista de los datos.
+        - tag: nombre del experimento.
+        - plot_size: tamaño del gráfico.
+
+"""
 
 function display_confussion_matrix(
     matrix::AbstractMatrix{<:Number}, 
@@ -158,6 +218,7 @@ function display_confussion_matrix(
     plot_size=(800, 600)
 )
 
+    # Obtener ruta de resultados
     output_dir = joinpath("..", "results")
     filename = "$(tag).png"
     filepath = joinpath(output_dir, filename)
@@ -165,7 +226,10 @@ function display_confussion_matrix(
     labels_str = string.(class_labels)
     n = size(matrix, 1)
 
-    # Calcular proporción para ajustar intensidad de color
+    # Calcular proporción de true_positives para ajustar intensidad de color
+    # ya que las clases no esán perfectamente balanceadas, el color se
+    # define en función de la proporción de predicciones acertadas,
+    # aunque solo se meustra el número raw de predicciones.
     normalized_matrix = matrix ./ class_counts
 
     # Definir coordenadas para centrar mejor el texto
@@ -175,6 +239,7 @@ function display_confussion_matrix(
     # Anotaciones usando coordenadas
     font_sz = n > 15 ? 7 : (n > 8 ? 9 : 11)
 
+    # Crear anotaciones
     anns = vec([
         (
             j, i, 
@@ -208,24 +273,35 @@ function display_confussion_matrix(
         bottom_margin = 8Plots.mm
     )
 
-    savefig(p, filepath)
+    savefig(p, filepath) # Guardar plot
     
     return p
 end
 
 """
-    save_feature_importance(fi_pairs, tag; top_n=20)
+    Esta fucnión se ha creado para gestionar los datos calculados 
+    de feature_importance de los modelos pertinentes. Ayuda a automatizar
+    la creación de gráficos y estadísticas para comprender mejor la selección
+    de características embedida en los modelos.
 
-Muestra estadísticas básicas en consola y guarda el gráfico de importancia
-exactamente con el estilo definido por el usuario en ../results.
+    Se está empleando la importanci relativa al resto de features normalizando
+    a porcentaje con el fin de facilitar el análisis.
+
+    Además, guarda los gráficos en el directorio destinado a almacenamiento
+    de resultados.
+
+    Params:
+        - fi_pairs: pares (feature, importancia) del modelo.
+        - tag: nombre del experimento (modelo).
+        - top_n: n features más explicativas que queremos mostrar.
 """
 function process_feature_importance(fi_pairs::AbstractVector, tag::String; top_n::Int=20)
 
-    # 1. Procesamiento básico y ordenación
+    # Procesamiento básico y ordenación
     # Orden ascendente (necesario para el gráfico y 'last')
     fi_sorted = sort(fi_pairs, by = x -> last(x), rev = false)
     
-    # Seleccionar Top N para el gráfico
+    # Seleccionar top npara el gráfico
     fi_subset = last(fi_sorted, min(length(fi_sorted), top_n))
     
     names = string.(first.(fi_subset))
@@ -234,8 +310,7 @@ function process_feature_importance(fi_pairs::AbstractVector, tag::String; top_n
     # Total de importancia para normalizar
     total_importance = sum(last.(fi_pairs))
     
-    # 2. Lógica de Acumulados (50-75-90%)
-    # Para esto necesitamos todos los valores ordenados de MAYOR a MENOR
+    # Lógica de acumulación
     all_values_desc = reverse(last.(fi_sorted)) 
     
     # Convertimos a porcentajes acumulados

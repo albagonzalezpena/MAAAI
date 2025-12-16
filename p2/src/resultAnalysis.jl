@@ -6,8 +6,9 @@ using Plots.Measures
 using PrettyTables
 using CategoricalArrays
 using ..ExperimentLab: History
+using Plots
 
-export display_cv_table, plot_cv_results, display_holdout_table
+export display_cv_table, plot_cv_results, display_holdout_table, display_confussion_matrix, process_feature_importance
 
 function display_cv_table(histories::Vector{History}, metric_names::Vector{String})
     
@@ -94,7 +95,7 @@ function display_holdout_table(histories::Vector{History}, metric_names::Vector{
     )
 end
 
-function plot_cv_results(histories::Vector{History}, metric_name::String)
+function plot_cv_results(histories::Vector{History}, metric_name::String, name::String)
     
     # Aplanado de datos para plotting
     scenarios = String[]
@@ -138,6 +139,173 @@ function plot_cv_results(histories::Vector{History}, metric_name::String)
         size = (800, 600),          
         outliers = true
     )
+
+    # Guardar el gráfico
+    output_dir = joinpath("..", "results")
+    filename = "$(name).png"
+    filepath = joinpath(output_dir, filename)
+    savefig(p, filepath)
+
+    return p
+end
+
+
+function display_confussion_matrix(
+    matrix::AbstractMatrix{<:Number}, 
+    class_labels::AbstractVector{<:AbstractString}, 
+    class_counts::Vector{Int}, 
+    tag::String="";
+    plot_size=(800, 600)
+)
+
+    output_dir = joinpath("..", "results")
+    filename = "$(tag).png"
+    filepath = joinpath(output_dir, filename)
+
+    labels_str = string.(class_labels)
+    n = size(matrix, 1)
+
+    # Calcular proporción para ajustar intensidad de color
+    normalized_matrix = matrix ./ class_counts
+
+    # Definir coordenadas para centrar mejor el texto
+    x_vals = 1:n
+    y_vals = 1:n
+
+    # Anotaciones usando coordenadas
+    font_sz = n > 15 ? 7 : (n > 8 ? 9 : 11)
+
+    anns = vec([
+        (
+            j, i, 
+            text(
+                "$(Int(matrix[i,j]))", 
+                font_sz, 
+                :black, 
+                :center 
+            )
+        ) 
+        for i in 1:n, j in 1:n
+    ])
+
+    # Generar heatmap
+    p = heatmap(
+        x_vals, y_vals, normalized_matrix,
+        xticks = (1:n, labels_str),
+        yticks = (1:n, labels_str),
+        title = "Confussion Matrix - $tag",
+        xlabel = "Prediction", 
+        ylabel = "Real",
+        color = :blues,
+        clims = (0, 1),
+        colorbar = false,
+        annotations = anns,
+        yflip = true, 
+        aspect_ratio = 1, 
+        size = plot_size,        
+        xrotation = 45, 
+        left_margin = 8Plots.mm,
+        bottom_margin = 8Plots.mm
+    )
+
+    savefig(p, filepath)
+    
+    return p
+end
+
+"""
+    save_feature_importance(fi_pairs, tag; top_n=20)
+
+Muestra estadísticas básicas en consola y guarda el gráfico de importancia
+exactamente con el estilo definido por el usuario en ../results.
+"""
+function process_feature_importance(fi_pairs::AbstractVector, tag::String; top_n::Int=20)
+
+    # 1. Procesamiento básico y ordenación
+    # Orden ascendente (necesario para el gráfico y 'last')
+    fi_sorted = sort(fi_pairs, by = x -> last(x), rev = false)
+    
+    # Seleccionar Top N para el gráfico
+    fi_subset = last(fi_sorted, min(length(fi_sorted), top_n))
+    
+    names = string.(first.(fi_subset))
+    values_raw_top = last.(fi_subset)
+    
+    # Total de importancia para normalizar
+    total_importance = sum(last.(fi_pairs))
+    
+    # 2. Lógica de Acumulados (50-75-90%)
+    # Para esto necesitamos todos los valores ordenados de MAYOR a MENOR
+    all_values_desc = reverse(last.(fi_sorted)) 
+    
+    # Convertimos a porcentajes acumulados
+    cumulative_pct = cumsum(all_values_desc ./ total_importance .* 100)
+    
+    # Función auxiliar para encontrar el índice donde se cruza el umbral
+    function find_cutoff(threshold)
+        idx = findfirst(x -> x >= threshold, cumulative_pct)
+        return isnothing(idx) ? length(cumulative_pct) : idx
+    end
+
+    n_50 = find_cutoff(50.0)
+    n_75 = find_cutoff(75.0)
+    n_90 = find_cutoff(90.0)
+
+    # Preparar estadísticas para la tabla
+    values_top_pct = (values_raw_top ./ total_importance) .* 100
+    accum_top = sum(values_top_pct)
+    zeros_count = count(x -> last(x) == 0, fi_pairs)
+    
+    # Construcción de la matriz de estadísticas
+    stats = [
+        "Total Features"             length(fi_pairs);
+        "Features muertas (0.0)"     zeros_count;
+        "Info explicada por Top-$top_n" "$(round(accum_top, digits=2)) %";
+        "Features para el 50%"       n_50;
+        "Features para el 75%"       n_75;
+        "Features para el 90%"       n_90
+    ]
+    
+    # Crear tabla
+    pretty_table(
+        stats;
+        header = nothing,
+        alignment = [:l, :r],
+        tf = tf_borderless
+    )
+
+    positions = 1:length(values_top_pct)
+
+    # Gráfico
+    p = bar(
+        positions,
+        values_top_pct,
+        orientation = :h,           
+        yticks = (positions, names),
+        legend = false,
+        color = :steelblue,
+        alpha = 0.8,
+        left_margin = 3mm,
+        bottom_margin = 5mm,
+        top_margin = 3mm,
+        right_margin = 5mm,
+        title = "$tag Feature Importance", 
+        xlabel = "Importancia (%)",
+        ylabel = "",
+        grid = :x,
+        xlims = (0, maximum(values_top_pct) * 1.05)
+    )
+
+    # Guardar plot
+    out_dir = joinpath("..", "results")
+    !isdir(out_dir) && mkpath(out_dir)
+    
+    safe_tag = replace(tag, " " => "_")
+    path = joinpath(out_dir, "fi_$(safe_tag).png")
+    
+    savefig(p, path)
+    
+    return p
 end
 
 end # module

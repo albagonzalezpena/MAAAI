@@ -9,8 +9,6 @@ using Statistics
 using Tables
 using LIBSVM   
 using CategoricalArrays
-
-# Importamos utilidades para definir la red
 import MLJBase: source, machine, node
 
 export run_experiment_crossvalidation, History, run_experiment_holdout
@@ -109,6 +107,7 @@ struct History
     filter_dim::Tuple{Float64, Float64}
     proj_dim::Tuple{Float64, Float64}
     feature_importances::Any
+    confussion_matrix::Any
 end
 
 # ==============================================================================
@@ -190,6 +189,7 @@ function run_experiment_crossvalidation(
         n_orig,
         (f_mean, f_std),
         (p_mean, p_std),
+        nothing,
         nothing
     )
 
@@ -216,6 +216,12 @@ function run_experiment_holdout(
 
     # Predecir sobre Test
     y_mode  = MLJ.predict_mode(mach, X_test)
+
+    # Matriz de confusión
+    cmat = MLJ.confusion_matrix(y_mode, y_test)
+    raw_matrix = cmat.mat
+    raw_matrix = raw_matrix' # transponer para que filas=verdaderos, columnas=predichos
+
 
     results_dict = Dict{String, Vector{Float64}}()
     
@@ -276,7 +282,8 @@ function run_experiment_holdout(
         n_orig,
         (Float64(nf), 0.0),
         (Float64(np), 0.0),
-        feature_importance
+        feature_importance,
+        raw_matrix
     )
 end
 

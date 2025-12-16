@@ -16,6 +16,7 @@ using LightGBM
 using MLJBase
 using MLJModelInterface
 using CategoricalArrays
+using Random
 
 
 export get_knn_model, 
@@ -336,30 +337,12 @@ function MLJModelInterface.predict_mode(m::PartitionedVotingClassifier, fitresul
         # Caso 1: no hay empate
         if length(winners) == 1
             final_predictions[i] = winners[1]
-            continue
+        
+        # Caso 2: hay empate
+        # Desempate: elección aleatoria sobre ganadores
+        else
+            final_predictions[i] = rand(winners)
         end
-
-        # Caso 2: empate -> resolver por soft voting
-
-        # Vector de probabilidades acumuladas
-        total_probs = zeros(Float64, length(class_levels))
-
-        # Para cada modelo, sumar probabilidades
-        for (j, mach) in enumerate(machines)
-            feats  = feature_groups[j]
-            X_sub  = MLJBase.selectcols(Xnew, feats)
-
-            # predicción probabilística del modelo base
-            dist = MLJBase.predict(mach, X_sub)[i]
-
-            # acumulamos
-            probs = [pdf(dist, c) for c in class_levels]  # vector de probabilidades
-            total_probs .+= probs
-        end
-
-        # se elige la clase con mayor porbabilidad
-        max_idx = argmax(total_probs)
-        final_predictions[i] = class_levels[max_idx]
     end
 
     return final_predictions

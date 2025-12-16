@@ -1,5 +1,12 @@
 module ModelFactory
 
+"""
+    Este módulo implementa un patrón factory para abstraer la lógica de la
+    creación de los modelos necesarios para ejecutar los experimentos en 
+    el notebook. Haciendo que esta tarea se ejecute de manera sencilla 
+    manteniendo la limpieza del notebook.
+"""
+
 using MLJ
 using MLJFlux      
 using Flux         
@@ -48,8 +55,8 @@ const MLJ_LGBM = LightGBM.MLJInterface.LGBMClassifier
 # BUILDER DINÁMICO PARA MLP 
 # ==============================================================================
 """
-DynamicBuilder: Estructura auxiliar para construir redes neuronales
-con topología variable basada en un vector de enteros.
+    DynamicBuilder: Estructura auxiliar para construir redes neuronales
+    con topología variable basada en un vector de capas.
 """
 mutable struct DynamicBuilder <: MLJFlux.Builder
     hidden_layers::Vector{Int}
@@ -72,25 +79,24 @@ function MLJFlux.build(b::DynamicBuilder, rng, n_in, n_out)
 end
 
 # ==============================================================================
-# FACTORY: KNN
+# KNN
 # ==============================================================================
 """
-Devuelve un modelo KNN configurado.
-Parámetros:
-  - k: Número de vecinos (default: 5)
+    Devuelve un modelo KNN configurado.
+    Params:
+        - k: Número de vecinos.
 """
 function get_knn_model(k::Int)
     return KNNClassifier(K=k)
 end
 
 # ==============================================================================
-# FACTORY: SVM
+#  SVM
 # ==============================================================================
 """
-Devuelve un modelo SVM (Support Vector Machine) configurado.
-Parámetros:
-  - cost: Penalización por error (C) (default: 1.0)
-  - kernel: Tipo de kernel (default: Radial)
+    Devuelve un modelo SVM (Support Vector Machine) con kernel lineal.
+    Params:
+    - cost: valor de penalización C.
 """
 function get_svm_model(cost::Float64)
     return MLJ_SVC(cost=cost,  kernel=LIBSVM.Kernel.Linear)
@@ -100,11 +106,14 @@ end
 # FACTORY: MLP (RED NEURONAL)
 # ==============================================================================
 """
-Devuelve un modelo de Red Neuronal (MLP) configurado.
-Parámetros:
-  - hidden_layers: Vector con el tamaño de las capas ocultas (ej: [100, 50])
-  - epochs: Número de épocas de entrenamiento
-  - learning_rate: Tasa de aprendizaje para el optimizador ADAM
+    Devuelve un modelo de Red Neuronal (MLP) de Flux configurado. La red neuronales
+    tiene optimizador Adam, no tiene regularización y tiene un batch size de 16 por motivos
+    de eficiencia.
+
+    Params:
+        - hidden_layers: Vector con el tamaño de las capas ocultas (ej: [100, 50])
+        - epochs: Número de épocas de entrenamiento
+        - learning_rate: Tasa de aprendizaje para el optimizador ADAM
 """
 function get_mlp_model(hidden_layers::Vector{Int}; epochs::Int=50, learning_rate::Float64=0.001)
     
@@ -119,14 +128,14 @@ function get_mlp_model(hidden_layers::Vector{Int}; epochs::Int=50, learning_rate
 end
 
 # ==============================================================================
-# FACTORY: BAGGING (KNN BASE)
+# BAGGING con kNN
 # ==============================================================================
 """
-Devuelve un modelo de Bagging usando KNN como clasificador base.
-Parámetros:
-  - k: Número de vecinos para el KNN base (ej: 5).
-  - n_estimators: Número de modelos en el ensemble (ej: 10, 50).
-  - fraction: Porcentaje de datos a usar en cada bolsa (default: 0.8).
+    Devuelve un modelo de Bagging usando KNN como clasificador base.
+    Params:
+    - k: Número de vecinos para el KNN base.
+    - n_estimators: Número de modelos en el ensemble.
+    - fraction: Porcentaje de datos a usar en cada partición para simular Bootstrap.
 """
 function get_bagging_knn_model(k::Int, n_estimators::Int; fraction::Float64=0.8)
     
@@ -142,25 +151,30 @@ function get_bagging_knn_model(k::Int, n_estimators::Int; fraction::Float64=0.8)
 end
 
 # ==============================================================================
-# FACTORY: ADABOOST (Decision Stumps)
+# Adaboost con árboles
 # ==============================================================================
 """
-Devuelve un modelo AdaBoost usando 'Decision Stumps' (árboles de profundidad 1).
-Este es el algoritmo clásico de AdaBoost.
-Parámetros:
-  - n_estimators: Número de iteraciones (estimadores).
+    Devuelve un modelo AdaBoost usando Decision Stumps (árboles de profundidad 1).
+    Params:
+        - n_estimators: Número de iteraciones (estimadores).
 """
 function get_adaboost_model(n_estimators::Int)
     return AdaBoostStump(
-        n_iter = n_estimators  # Mapeamos el argumento al parámetro interno
+        n_iter = n_estimators  
     )
 end
 
 
 # ==============================================================================
-# FACTORY: EvoTree
+# EvoTree
 # ==============================================================================
 
+"""
+    Este método devuelve un modelo evotree (equivalente a gradient boosting).
+    Params:
+        - n_stimators: número de iteraciones.
+        - learning_rate: tasa de aprendizaje empleada por el modelo.
+"""
 function get_evotree_model(n_estimators::Int; learning_rate::Float64=0.2)
 
     return MLJ_EvoTree(
@@ -172,24 +186,38 @@ function get_evotree_model(n_estimators::Int; learning_rate::Float64=0.2)
 end
 
 # ==============================================================================
-# FACTORY: Random Forest
+# Random Forest
 # ==============================================================================
 
+"""
+    Este método devuelve un modelo Random Forest simulando su configuración por defecto.
+    Params:
+        - n_trees: número de árboles a emplear.
+        - max_depth: produndidad máxima de los árboles 
+            (por defecto 10, como se especifica en el enunciado).
+"""
 
 function get_rf_model(n_trees::Int, max_depth::Int=10)
     return MLJ_RF(
         n_trees = n_trees,
         max_depth = max_depth,         
         min_samples_split = 2,
-        sampling_fraction = 1.0,       # Bagging de filas (80% datos por árbol)
-        n_subfeatures = -1             # -1 significa sqrt(n_features) (Estándar en RF)
+        sampling_fraction = 1.0,       # No aplicar bagging en las filas
+        n_subfeatures = -1             # sqrt(n_features) (deafult en RF)
     )
 end
 
 # ==============================================================================
-# FACTORY: XGBoost
+# XGBoost
 # ==============================================================================
 
+"""
+    Este método devuelve un modelo de XGBoost.
+    Params:
+        - n_rounds: número de iteraciones (árboles secuenciales) del modelo.
+    
+    (Se ejecuta en un solo hilo para evitar conflictos con arquitectura Apple Silicon)
+"""
 
 function get_xgboost_model(n_rounds::Int)
 
@@ -200,9 +228,15 @@ function get_xgboost_model(n_rounds::Int)
 end
 
 # ==============================================================================
-# FACTORY: LightGBM
+# LightGBM
 # ==============================================================================
 
+"""
+    Este método devuelve un modelo de LightGBM para clasificación multiclase.
+    Params:
+        - n_iters: número de iteraciones del modelo.
+    
+"""
 
 function get_lightgbm_model(n_iters::Int)
 
@@ -215,8 +249,15 @@ function get_lightgbm_model(n_iters::Int)
 end
 
 # ==============================================================================
-# FACTORY: CatBoost
+# CatBoost
 # ==============================================================================
+
+"""
+    Este método devuelve un modelo de CatBoost para clasificación multiclase
+    con configuración por defecto.
+
+    (Se ejecuta en un solo hilo CPU para evitar conflictos con arquitectura Apple Silicon)
+"""
 
 function get_catboost_model()
     return MLJ_CatBoost(
@@ -232,7 +273,14 @@ end
 # Feature Subspace Hard Voting Classifier
 # ===================================================
 
+"""
+    En este struct estamos implementando un modelo de hard voting con SVM
+    en el que se divide el espacio de características para crear modelos
+    especializados.
 
+"""
+
+# Se crea un modelo probabilístico para que encaje en el pipeline diseñado
 mutable struct PartitionedVotingClassifier <: Probabilistic
     model::Probabilistic
     n_partitions::Int
@@ -243,15 +291,17 @@ function PartitionedVotingClassifier(; model=nothing, n_partitions=3, rng=104)
     return PartitionedVotingClassifier(model, n_partitions, rng)
 end
 
-
+"""
+    Método que ajusta los modelos.
+"""
 function MLJModelInterface.fit(m::PartitionedVotingClassifier, verbosity::Int, X, y)
     
-    # 1. Obtener nombres de las características
+    # Obtener nombres de las características que nos servirán para inferencia
     schema_X = MLJBase.schema(X)
     all_features = collect(schema_X.names)
     n_features = length(all_features)
     
-    # 2. Barajar y particionar características (Feature Map)
+    #  Barajar y particionar feature space 
     rng = MersenneTwister(m.rng)
     shuffled_feats = shuffle(rng, all_features)
     
@@ -261,6 +311,7 @@ function MLJModelInterface.fit(m::PartitionedVotingClassifier, verbosity::Int, X
     machines_list = [] # Guardar los modelos entrenados
     feature_groups = [] # Guardar features usadas por cada modelo
     
+    # Recorrer las particiones creadas
     start_idx = 1
     for i in 1:m.n_partitions
         end_idx = min(start_idx + chunk_size - 1, n_features)
@@ -290,14 +341,19 @@ function MLJModelInterface.fit(m::PartitionedVotingClassifier, verbosity::Int, X
         class_pool = CategoricalArrays.pool(y)
     )
     
+    # Generar report
     report = (n_models_trained=length(machines_list),)
     cache = nothing
     
     return fitresults, cache, report
 end
 
+"""
+    Función que nos sirve para predecir la moda (clase más votada)
+"""
 function MLJModelInterface.predict_mode(m::PartitionedVotingClassifier, fitresult, Xnew)
 
+    # Obtener los modelos entrenados, los subespacios del dataset y sus encodings
     machines       = fitresult.machines
     feature_groups = fitresult.feature_groups
     class_levels   = fitresult.class_levels
@@ -348,10 +404,13 @@ function MLJModelInterface.predict_mode(m::PartitionedVotingClassifier, fitresul
     return final_predictions
 end
 
-
+"""
+    Función que genera una distribución de probabilidad sobre las predicciones
+    para cumplir con la parte probabilística del modelo.
+"""
 function MLJModelInterface.predict(m::PartitionedVotingClassifier, fitresult, Xnew)
 
-    # Obtener la clase ganadore
+    # Obtener la clase ganadora
     yhat = MLJModelInterface.predict_mode(m, fitresult, Xnew)
     
     class_levels = fitresult.class_levels
@@ -382,9 +441,16 @@ MLJModelInterface.metadata_model(PartitionedVotingClassifier,
 )
 
 # ==============================================================================
-#  FACTORY: Voting Classifier
+#  Voting Classifier
 # ==============================================================================
 
+"""
+    Método factory que devuelve un voting classifier con svm.
+    Params:
+        - cost: hiperparámetro C para los SVMs internos.
+        - n_partitions: particiones que haremos en el feature space.
+        - rng (opcional): semilla usada para generar las particiones.
+"""
 function get_voting_classifier(cost::Float64, n_partitions::Int; rng::Int=104)
 
     base_model = MLJ_SVC(cost=cost,  kernel=LIBSVM.Kernel.Linear)
@@ -398,8 +464,17 @@ function get_voting_classifier(cost::Float64, n_partitions::Int; rng::Int=104)
 end
 
 # ==============================================================================
-#  FACTORY: Custom Resampling Strategy
+#  Custom Resampling Strategy
 # ==============================================================================
+
+"""
+    Este wrapper nos permite crear una resampling strategy compatible con MLJ
+    para poder usar nuestros folds individual-wise personalizados en el Stacking Ensemble
+    que crearemos posteriormente.
+
+    Params:
+        - Vector(Tupla(Train, Test)) con los datos de cada cada fold.
+"""
 
 struct IndividualWiseCV <: MLJBase.ResamplingStrategy
     values::Vector{Tuple{Vector{Int}, Vector{Int}}}
@@ -420,8 +495,19 @@ end
 
 
 # ==============================================================================
-#  FACTORY: Stacking Ensemble
+# Stacking Ensemble
 # ==============================================================================
+
+"""
+    Este método devuelve un Stacking Ensemble con un meta modelo específico, 
+    unos modelos base determinados y una resampling strategy definida por el usuario.
+
+    - Params:
+        - meta_model: meta modelo que decide sobre las decisiones de los modelos base.
+        - base_models: diccionario que contiene los modelos determinados en el enunciado
+            (svm, knn y red neuronal).
+        - resampling: estrategia de CrossValidation a usar en el Stacking.
+"""
 
 function get_stacking_model(meta_model::Any, 
                     base_models::Dict{Symbol, <:Any}, 

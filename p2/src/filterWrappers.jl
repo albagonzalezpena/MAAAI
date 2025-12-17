@@ -406,69 +406,58 @@ MutualInfoSelector(; k::Int=5, n_bins::Int=10) = MutualInfoSelector(k, n_bins)
 
 function MLJBase.fit(model::MutualInfoSelector, verbosity::Int, X, y)
     
-    # Adaptación de datos para el cálculo
+    # Preparar datos
     X_mat = Float64.(Matrix(MLJBase.matrix(X)))
     n_features = size(X_mat, 2)
     n_samples = size(X_mat, 1)
     
-    # Obtener y como un valor numérico
+    # Convertir y a índices numéricos (1-indexed)
     y_int = try
         Int.(levelcode.(y))
     catch
         Int.(y)
     end
-    # Asegurarse que no hay índices con 0
-    if minimum(y_int) < 1 y_int .+= (1 - minimum(y_int)) end
-    n_classes = maximum(y_int)
     
-    # Crear vector para guardar mutual information scores
+    # Asegurar índices desde 1
+    if minimum(y_int) < 1
+        y_int .+= (1 - minimum(y_int))
+    end
+    
+    n_classes = maximum(y_int)
     mi_scores = zeros(Float64, n_features)
     
+    # Calcular MI para cada feature
     for i in 1:n_features
-
-        # Discretizar el la feature para poder calcular MI
-        feature = view(X_mat, :, i)
-        h = StatsBase.fit(Histogram, feature, nbins=model.n_bins)
-        edges = h.edges[1]
-        n_actual_bins = length(edges) - 1
+        feature = @view X_mat[:, i]
         
-        # Crear una matriz de contingencia 
-        counts = zeros(Int, n_actual_bins, n_classes)
+        # Discretizar feature en bins
+        bins = StatsBase.fit(Histogram, feature, nbins=model.n_bins).edges[1]
+        discretized = searchsortedlast.(Ref(bins), feature)
         
-        for k in 1:n_samples
-            val = feature[k]
-
-            # Guardar el valor de la feature en la tabla de contingencia
-            bin_idx = searchsortedlast(edges, val)
-
-            # Corregir bordes de los bins
-            if bin_idx > n_actual_bins bin_idx = n_actual_bins end
-            if bin_idx < 1 bin_idx = 1 end
-            
-            # Obtener la clase del dato
-            class_idx = y_int[k]
-
-            # Llenar la celda correspondiente
-            if class_idx <= n_classes
-                counts[bin_idx, class_idx] += 1
-            end
+        # Corregir límites
+        n_bins = length(bins) - 1
+        clamp!(discretized, 1, n_bins)
+        
+        # Tabla de contingencia: contar co-ocurrencias
+        counts = zeros(Int, n_bins, n_classes)
+        for j in 1:n_samples
+            counts[discretized[j], y_int[j]] += 1
         end
         
-        count_x = sum(counts, dims=2) # Total de datos en cada bin
-        count_y = sum(counts, dims=1) # Total de datos en cada clase
+        # Distribuciones marginales
+        p_x = vec(sum(counts, dims=2)) ./ n_samples  # P(X)
+        p_y = vec(sum(counts, dims=1)) ./ n_samples  # P(Y)
+        p_xy = counts ./ n_samples                   # P(X,Y)
+        
+        # Calcular mutual information
         mi = 0.0
-
-        # Calcular mutual info
-        for bx in 1:n_actual_bins
-            for by in 1:n_classes
-                c_xy = counts[bx, by]
-                if c_xy > 0
-                    term = log2( (c_xy * n_samples) / (count_x[bx] * count_y[by]) )
-                    mi += (c_xy / n_samples) * term
-                end
+        for bx in 1:n_bins, by in 1:n_classes
+            if p_xy[bx, by] > 0
+                mi += p_xy[bx, by] * log2(p_xy[bx, by] / (p_x[bx] * p_y[by]))
             end
         end
-        mi_scores[i] = mi # Almacenar MI
+        
+        mi_scores[i] = mi
     end
     
 

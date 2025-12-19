@@ -611,6 +611,8 @@ function MLJModelInterface.feature_importances(model::LogisticRFE, fitresult, re
     end
 end
 
+export RFELogistic
+
 """
     Implementación de un método factory de RFE para abstraer en funcionamiento
     del filtrado y facilitar la implementación clara en el notebook.

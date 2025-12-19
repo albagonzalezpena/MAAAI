@@ -1,26 +1,23 @@
+""" Módulo fachada para facilitar importaciones """
+
 module ProjectEnv
 
     # =========================================================================
-    # 1. CARGA DE ARCHIVOS FUENTE
-    # Importante: El orden importa si hay dependencias entre ellos.
+    # CARGAR ARCHIVOS FUENTE
     # =========================================================================
     
-    # Utilidades básicas y Wrappers
     include("scaler.jl")
     include("filterWrappers.jl")
     include("dimReduction.jl")
     include("modelFactory.jl")
     
-    # Lógica de Experimentos y Tests (que usan lo anterior)
     include("experimentLab.jl")
     include("hypothesisTest.jl")
     
-    # Análisis de Resultados
     include("resultAnalysis.jl")
 
     # =========================================================================
-    # 2. IMPORTACIÓN DE MÓDULOS INTERNOS
-    # Traemos los módulos al namespace de ProjectEnv
+    # IMPORTACIÓN
     # =========================================================================
     using .CustomScalers
     using .FilteringReduction
@@ -31,8 +28,7 @@ module ProjectEnv
     using .StatisticalTests
 
     # =========================================================================
-    # 3. EXPORTACIÓN (LA FACHADA)
-    # Hacemos públicas las funciones para que el Notebook las vea
+    # EXPORTACÓN
     # =========================================================================
 
     # --- filterWrappers ---
